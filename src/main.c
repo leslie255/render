@@ -87,13 +87,14 @@ Vec3 triangle_normal(Vec3 p0, Vec3 p1, Vec3 p2) {
 }
 
 /// The light level of a surface.
-u8 surface_light_level(Vec3 light, Vec3 normal) {
+u8 surface_light_level(Vec3 light, Vec3 normal, u8 min) {
   //  angle = arccos ( (a . b) / (|a| |b|) )
   f32 angle = acosf(dot3(light, normal) / (abs3(normal) * abs3(light)));
   if (angle > to_rad(90))
-    angle = to_rad(180) - angle;
+    return min;
   f32 light_level = 1 - (angle / to_rad(90));
-  return (u8)(light_level * 255);
+  u8 x = (u8)(light_level * 255);
+  return x > min ? x : min;
 }
 
 typedef struct frame {
@@ -105,7 +106,7 @@ typedef struct frame {
 } Frame;
 
 char char_for_light_level(u8 light_level) {
-  static const char grayscale[] = ".-+#@";
+  static const char grayscale[] = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'.";
   usize i = (usize)light_level / (256 / sizeof(grayscale) - 1);
   if (i > sizeof(grayscale) - 2)
     i = sizeof(grayscale) - 2;
@@ -157,7 +158,6 @@ void free_renderer(Renderer renderer) {
 }
 
 typedef void(draw_pixel_callback_t)(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level);
-typedef void(draw_eol_callback_t)(void *cx, usize width, usize height, usize y);
 
 usize max_usize(usize a, usize b) {
   return (a > b) ? a : b;
@@ -239,7 +239,7 @@ __attribute__((__always_inline__)) void draw_triangle(Renderer *renderer, Vec3 p
   usize max_y = min_usize(cam_to_pixel_y(renderer, min_y_cam) + 1, renderer->height);
 
   // The light level of this surface.
-  u8 light_level = surface_light_level(renderer->scene.light, triangle_normal(p0, p1, p2));
+  u8 light_level = surface_light_level(renderer->scene.light, triangle_normal(p0, p1, p2), 20);
 
   // Sample and draw the pixels.
   for (usize y = min_y; y < max_y; ++y) {
@@ -283,31 +283,48 @@ void draw_triangle_gui(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2) {
 
 i32 main() {
   Vec3 vertices[] = {
-      {-5, -5, -5}, //
-      {-5, -5, 5},  //
-      {-5, 5, -5},  //
-      {-5, 5, 5},   //
-      {5, -5, -5},  //
-      {5, -5, 5},   //
-      {5, 5, -5},   //
-      {5, 5, 5},    //
+      {-5.0f, -5.0f, -5.0f}, //
+      {5.0f, -5.0f, -5.0f},  //
+      {5.0f, 5.0f, -5.0f},   //
+      {-5.0f, 5.0f, -5.0f},  //
+      {-5.0f, -5.0f, 5.0f},  //
+      {5.0f, -5.0f, 5.0f},   //
+      {5.0f, 5.0f, 5.0f},    //
+      {-5.0f, 5.0f, 5.0f},   //
+      {-5.0f, 5.0f, -5.0f},  //
+      {-5.0f, -5.0f, -5.0f}, //
+      {-5.0f, -5.0f, 5.0f},  //
+      {-5.0f, 5.0f, 5.0f},   //
+      {5.0f, -5.0f, -5.0f},  //
+      {5.0f, 5.0f, -5.0f},   //
+      {5.0f, 5.0f, 5.0f},    //
+      {5.0f, -5.0f, 5.0f},   //
+      {-5.0f, -5.0f, -5.0f}, //
+      {5.0f, -5.0f, -5.0f},  //
+      {5.0f, -5.0f, 5.0f},   //
+      {-5.0f, -5.0f, 5.0f},  //
+      {5.0f, 5.0f, -5.0f},   //
+      {-5.0f, 5.0f, -5.0f},  //
+      {-5.0f, 5.0f, 5.0f},   //
+      {5.0f, 5.0f, 5.0f},    //
   };
+  // index data
   usize indices[] = {
-      0, 1, 2, // 0
-      1, 2, 3, // 1
-      4, 2, 6, // 2
-      0, 4, 2, // 3
-      4, 7, 6, // 4
-      4, 5, 7, // 5
-      4, 5, 0, // 6
-      0, 1, 5, // 7
-      1, 3, 5, // 8
-      7, 3, 5, // 9
-      6, 3, 2, // 10
-      6, 3, 7, // 11
+      0,  3,  2,  //
+      2,  1,  0,  //
+      4,  5,  6,  //
+      6,  7,  4,  //
+      11, 8,  9,  //
+      9,  10, 11, //
+      12, 13, 14, //
+      14, 15, 12, //
+      16, 17, 18, //
+      18, 19, 16, //
+      20, 21, 22, //
+      22, 23, 20  //
   };
 
-  Vec3 light = {0, -1, 0};
+  Vec3 light = {-10, 5, -1};
   Camera_ cam = {
       .pos = {100, 0, 0},
       .min_x = -10,
@@ -322,8 +339,8 @@ i32 main() {
   const usize height = 800;
 #else
   const f32 fps = 24;
-  const usize width = 80;
-  const usize height = 80;
+  const usize width = 40;
+  const usize height = 40;
 #endif
 
   Renderer renderer = new_renderer((Scene){cam, light}, width, height);
