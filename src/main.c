@@ -159,6 +159,13 @@ void free_renderer(Renderer renderer) {
 typedef void(draw_pixel_callback_t)(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level);
 typedef void(draw_eol_callback_t)(void *cx, usize width, usize height, usize y);
 
+usize max_usize(usize a, usize b) {
+  return (a > b) ? a : b;
+}
+usize min_usize(usize a, usize b) {
+  return (a < b) ? a : b;
+}
+
 f32 minf(f32 a, f32 b) {
   return (a < b) ? a : b;
 }
@@ -226,10 +233,10 @@ __attribute__((__always_inline__)) void draw_triangle(Renderer *renderer, Vec3 p
   f32 max_y_cam = minf(maxf3(p0_proj.get[1], p1_proj.get[1], p2_proj.get[1]), cam.max_y);
   // Pixel coords.
   // Adds some extra pixels to the frame to compensate for floating point inaccuracies.
-  usize min_x = cam_to_pixel_x(renderer, min_x_cam) + 1;
-  usize max_x = cam_to_pixel_x(renderer, max_x_cam) + 1;
-  usize min_y = cam_to_pixel_y(renderer, max_y_cam) + 1;
-  usize max_y = cam_to_pixel_y(renderer, min_y_cam) + 1;
+  usize min_x = max_usize(cam_to_pixel_x(renderer, min_x_cam) - 1, 0);
+  usize max_x = min_usize(cam_to_pixel_x(renderer, max_x_cam) + 1, renderer->width);
+  usize min_y = max_usize(cam_to_pixel_y(renderer, max_y_cam) - 1, 0);
+  usize max_y = min_usize(cam_to_pixel_y(renderer, min_y_cam) + 1, renderer->height);
 
   // The light level of this surface.
   u8 light_level = surface_light_level(renderer->scene.light, triangle_normal(p0, p1, p2));
@@ -315,8 +322,8 @@ i32 main() {
   const usize height = 800;
 #else
   const f32 fps = 24;
-  const usize width = 20;
-  const usize height = 20;
+  const usize width = 80;
+  const usize height = 80;
 #endif
 
   Renderer renderer = new_renderer((Scene){cam, light}, width, height);
