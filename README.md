@@ -4,6 +4,8 @@
 
 https://github.com/leslie255/ascii3d/assets/105544303/d806f367-01a7-4df6-b836-3d72fa569800
 
+This is a generic 3D renderer that can render any shape you throw at it, not just one single cube!
+
 ## Building
 
 ```
@@ -34,4 +36,3 @@ The GUI version only builds on macOS and Linux (but the ASCII version can run on
 ## LICENSE
 
 This repo is licensed under GPLv3
-
