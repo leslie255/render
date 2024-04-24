@@ -28,11 +28,6 @@ The GUI version is used for debug during development as the ASCII render would j
 
 The GUI version only builds on macOS and Linux (but the ASCII version can run on anything that runs C and displays text!).
 
-## TODOs
-
-- Lights don't behave very well currently
-- Camera parallax?
-
 ## LICENSE
 
 This repo is licensed under GPLv3
