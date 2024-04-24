@@ -1,12 +1,16 @@
-# ASCII 3D
+# RENDER
 
-**ASCII 3D rendering from scratch in C**
+**A3D rendering from scratch in C**
 
 https://github.com/leslie255/ascii3d/assets/105544303/d806f367-01a7-4df6-b836-3d72fa569800
 
-This is a generic 3D renderer that can render any shape you throw at it, not just one single cube!
+https://github.com/leslie255/render/assets/105544303/e12e372d-9f73-490e-a3a0-b7ba03988bac
+
+Supports rendering in both terminal ASCII and GUI
 
 ## Building
+
+Render in terminal ASCII:
 
 ```
 $ mkdir bin/
@@ -14,19 +18,16 @@ $ make all MODE=release
 $ ./bin/ascii3d
 ```
 
-This project also supports rendering into a GUI window with with [raylib](https://github.com/raysan5/raylib).
-The GUI version could be built with `RENDER_MODE=raylib`:
+Render in GUI window (using [raylib](https://github.com/raysan5/raylib) to draw the pixels into a window):
 
 ```
 $ mkdir bin/
 $ make libs
-$ make all RENDER_MODE=raylib
+$ make all MODE=release RENDER_MODE=raylib
 $ ./bin/ascii3d
 ```
 
-The GUI version is used for debug during development as the ASCII render would just turn into a blob of unrecognizable shape if the rendering bugged out.
-
-The GUI version only builds on macOS and Linux (but the ASCII version can run on anything that runs C and displays text!).
+The GUI version currently only builds on macOS and Linux due to dependency managing, but the ASCII supports pretty much anything.
 
 ## LICENSE
 
