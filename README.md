@@ -17,6 +17,7 @@ The GUI version could be built with `RENDER_MODE=raylib`:
 
 ```
 $ mkdir bin/
+$ make libs
 $ make all RENDER_MODE=raylib
 $ ./bin/ascii3d
 ```
