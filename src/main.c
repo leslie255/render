@@ -6,7 +6,11 @@
 #include <raylib.h>
 #endif
 
-#include <unistd.h>
+#if defined(_WIN32) || defined(WIN32)
+#include "windows.h"
+#else
+#include "unistd.h"
+#endif
 
 /// For now camera always look in negative X direction.
 typedef struct camera {
@@ -89,7 +93,7 @@ u8 surface_light_level(Vec3 light, Vec3 normal) {
   if (angle > to_rad(90))
     angle = to_rad(180) - angle;
   f32 light_level = 1 - (angle / to_rad(90));
-  // light_level = sqrtf(light_level); // make it brigher
+  light_level = sqrtf(light_level); // make it brigher
   return (u8)(light_level * 255);
 }
 
@@ -287,8 +291,8 @@ i32 main() {
   Mat3x3 m = rotate3d_z(to_rad(180.0f / fps));
 
 #ifndef USE_RAYLIB
-    usize width = 30;
-    usize height = 30;
+    usize width = 40;
+    usize height = 40;
     usize frame_buffer_size = (width * 2 + 1) * height;
     char *frame_buffer = xalloc(char, frame_buffer_size);
 
