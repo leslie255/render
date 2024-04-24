@@ -2,7 +2,7 @@
 
 **ASCII 3D rendering from scratch in C**
 
-https://github.com/leslie255/ascii3d/assets/105544303/92b3561a-9c7a-43e6-a040-08f327935f81
+https://github.com/leslie255/ascii3d/assets/105544303/d806f367-01a7-4df6-b836-3d72fa569800
 
 ## Building
 
