@@ -1,0 +1,5 @@
+-Wall
+-std=gnu2x
+-Wconversion
+-DDEBUG
+-I./lib/raylib/src/

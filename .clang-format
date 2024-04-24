@@ -1,0 +1,6 @@
+﻿---
+ColumnLimit: '120'
+SortIncludes: 'false'
+AllowShortFunctionsOnASingleLine: None
+
+...
