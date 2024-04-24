@@ -111,13 +111,6 @@ typedef struct frame {
   u8 *pixels;
 } Frame;
 
-void apply_transform(Mat3x3 m, Vec3 *vertices, usize vertices_len) {
-  for (usize i = 0; i < vertices_len; ++i) {
-    Vec3 *p = &vertices[i];
-    *p = mul3x3_3(m, *p);
-  }
-}
-
 /// SAFETY: Only use new_renderer to construct this.
 typedef struct renderer {
   Vec3 *projs_buffer;
@@ -220,12 +213,16 @@ void renderer_clear_frame(Renderer *renderer) {
   }
 }
 
-__attribute__((__always_inline__)) void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2,
+__attribute__((__always_inline__)) void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat3x3 m,
                                                       draw_pixel_callback_t draw_pixel_callback) {
+  Vec3 p0_ = mul3x3_3(m, p0);
+  Vec3 p1_ = mul3x3_3(m, p1);
+  Vec3 p2_ = mul3x3_3(m, p2);
+
   // Project the triangle onto the camera plane.
-  Vec3 p0_proj = project_point(renderer->cam, p0);
-  Vec3 p1_proj = project_point(renderer->cam, p1);
-  Vec3 p2_proj = project_point(renderer->cam, p2);
+  Vec3 p0_proj = project_point(renderer->cam, p0_);
+  Vec3 p1_proj = project_point(renderer->cam, p1_);
+  Vec3 p2_proj = project_point(renderer->cam, p2_);
 
   // Calculate the frame that the triangle occupies so we can skip sampling pixels outside of this frame.
   Camera cam = renderer->cam;
@@ -242,7 +239,7 @@ __attribute__((__always_inline__)) void draw_triangle(Renderer *renderer, Vec3 p
   usize max_y = min_usize(cam_to_pixel_y(renderer, min_y_cam) + 1, renderer->height);
 
   // The light level of this surface.
-  u8 light_level = surface_light_level(renderer->light, triangle_normal(p0, p1, p2), 20);
+  u8 light_level = surface_light_level(renderer->light, triangle_normal(p0_, p1_, p2_), 20);
 
   // Sample and draw the pixels.
   for (usize y = min_y; y < max_y; ++y) {
@@ -279,8 +276,8 @@ __attribute__((__always_inline__)) void draw_pixel_callback_ascii(void *cx, usiz
   frame_buffer[i + 1] = c;
 }
 
-void draw_triangle_ascii(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2) {
-  draw_triangle(renderer, p0, p1, p2, draw_pixel_callback_ascii);
+void draw_triangle_ascii(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat3x3 m) {
+  draw_triangle(renderer, p0, p1, p2, m, draw_pixel_callback_ascii);
 }
 
 __attribute__((__always_inline__)) void draw_pixel_callback_gui(void *cx, usize width, usize height, usize x, usize y,
@@ -289,8 +286,8 @@ __attribute__((__always_inline__)) void draw_pixel_callback_gui(void *cx, usize 
   frame_buffer[y * width + x] = light_level;
 }
 
-void draw_triangle_gui(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2) {
-  draw_triangle(renderer, p0, p1, p2, draw_pixel_callback_gui);
+void draw_triangle_gui(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat3x3 m) {
+  draw_triangle(renderer, p0, p1, p2, m, draw_pixel_callback_gui);
 }
 
 i32 main() {
@@ -310,16 +307,17 @@ i32 main() {
   const usize height = 800;
 #else
   const f32 fps = 24;
-  const usize width = 40;
-  const usize height = 40;
+  const usize width = 100;
+  const usize height = 100;
 #endif
 
   Renderer renderer = new_renderer(width, height, cam, light);
 
-  apply_transform(rotate3d_x(to_rad(20)), teapot, ARR_LEN(teapot));
-  // apply_transform(rotate3d_x(to_rad(40)), teapot, ARR_LEN(teapot));
+  Mat3x3 m = mat3x3_id;
 
-  Mat3x3 m = rotate3d_z(to_rad(60.0f) / fps);
+  m = mul3x3(rotate3d_x(to_rad(20)), m);
+
+  Mat3x3 rotate = rotate3d_z(to_rad(60.0f) / fps);
 
 #ifndef USE_RAYLIB
   usize frame_buffer_size = (width * 2 + 1) * height;
@@ -327,14 +325,14 @@ i32 main() {
   renderer.draw_pixel_callback_cx = frame_buffer;
 
   for (;;) {
-    apply_transform(m, teapot, ARR_LEN(teapot));
+    m = mul3x3(rotate, m);
     renderer_clear_frame(&renderer);
     memset(frame_buffer, ' ', frame_buffer_size);
     for (usize i = 0; i < ARR_LEN(teapot); i += 3) {
-      Vec3 p0 = teapot[i+0];
-      Vec3 p1 = teapot[i+1];
-      Vec3 p2 = teapot[i+2];
-      draw_triangle_ascii(&renderer, p0, p1, p2);
+      Vec3 p0 = teapot[i + 0];
+      Vec3 p1 = teapot[i + 1];
+      Vec3 p2 = teapot[i + 2];
+      draw_triangle_ascii(&renderer, p0, p1, p2, m);
     }
     for (usize y = 0; y < height; ++y) {
       frame_buffer[(y * (width * 2 + 1)) + width * 2] = '\n';
@@ -349,14 +347,14 @@ i32 main() {
   SetTraceLogLevel(LOG_ERROR);
   InitWindow((i32)width, (i32)height, "Render");
   while (!WindowShouldClose()) {
-    apply_transform(m, teapot, ARR_LEN(teapot));
+    m = mul3x3(rotate, m);
     renderer_clear_frame(&renderer);
     memset(frame_buffer, 0, width * height);
     for (usize i = 0; i < ARR_LEN(teapot); i += 3) {
       Vec3 p0 = teapot[i + 0];
       Vec3 p1 = teapot[i + 1];
       Vec3 p2 = teapot[i + 2];
-      draw_triangle_gui(&renderer, p0, p1, p2);
+      draw_triangle_gui(&renderer, p0, p1, p2, m);
     }
     Texture texture = LoadTextureFromImage((Image){
         .width = (i32)width,

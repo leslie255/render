@@ -26,6 +26,12 @@ static inline Mat3x3 add3x3(Mat3x3 x, Mat3x3 y);
 
 static inline Mat3x3 sub3x3(Mat3x3 x, Mat3x3 y);
 
+static const Mat3x3 mat3x3_id = {{
+    {1, 0, 0},
+    {0, 1, 0},
+    {0, 0, 1},
+}};
+
 /// [ _ _ _ ] [ _ _ _ ]   [ _ _ _ ]
 /// [ _ _ _ ] [ _ _ _ ] = [ _ _ _ ]
 /// [ _ _ _ ] [ _ _ _ ]   [ _ _ _ ]

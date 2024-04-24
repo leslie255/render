@@ -7,7 +7,7 @@
   perfect for glDrawArrays or similar.
 */
 
-static Vec3 teapot[] = {
+static const Vec3 teapot[] = {
   {0.700000f, 0.000000f, 1.200000f},
   {0.605600f, -0.355700f, 1.200000f},
   {0.598800f, -0.351700f, 1.243700f},
