@@ -1,8 +1,11 @@
+#include "teapot.h"
 #include "common.h"
 #include "debug_utils.h"
 #include "mat.h"
 
+#define USE_RAYLIB
 #ifdef USE_RAYLIB
+#include <sys/time.h>
 #include <raylib.h>
 #endif
 
@@ -13,6 +16,7 @@
 #endif
 
 /// For now camera always look in negative X direction.
+/// But we still need an x value (could be any finite value) in the position vector for calculating the depth buffer.
 typedef struct camera {
   Vec3 pos;
   f32 min_x;
@@ -21,10 +25,13 @@ typedef struct camera {
   f32 max_y;
 } Camera_;
 
+// Because raylib also has a `Camera` typedef.
+#define Camera Camera_
+
 /// Project a point to the camera.
 /// Returns a Vec3, in which the x and y values are the on-screen position, z is
 /// the depth.
-Vec3 project_point(Camera_ cam, Vec3 p) {
+Vec3 project_point(Camera cam, Vec3 p) {
   return (Vec3){p.get[1], p.get[2], cam.pos.get[0] - p.get[0]};
 }
 
@@ -105,19 +112,6 @@ typedef struct frame {
   u8 *pixels;
 } Frame;
 
-char char_for_light_level(u8 light_level) {
-  static const char grayscale[] = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'.";
-  usize i = (usize)light_level / (256 / sizeof(grayscale) - 1);
-  if (i > sizeof(grayscale) - 2)
-    i = sizeof(grayscale) - 2;
-  return grayscale[i];
-}
-
-typedef struct scene {
-  Camera_ cam;
-  Vec3 light;
-} Scene;
-
 void apply_transform(Mat3x3 m, Vec3 *vertices, usize vertices_len) {
   for (usize i = 0; i < vertices_len; ++i) {
     Vec3 *p = &vertices[i];
@@ -136,21 +130,31 @@ typedef struct renderer {
   f32 y_ratio;
   /// LEN: width * height.
   f32 *depth_buffer;
-  Scene scene;
+  Camera cam;
+  Vec3 light;
   void *draw_pixel_callback_cx;
 } Renderer;
 
-Renderer new_renderer(const Scene scene, usize width, usize height) {
-  ASSERT(scene.cam.max_x > scene.cam.min_x);
-  ASSERT(scene.cam.max_y > scene.cam.min_y);
+Renderer new_renderer(usize width, usize height, Camera cam, Vec3 light) {
+  ASSERT(cam.max_x > cam.min_x);
+  ASSERT(cam.max_y > cam.min_y);
   return (Renderer){
       .depth_buffer = xalloc(f32, width * height),
       .width = width,
       .height = height,
-      .x_ratio = (scene.cam.max_x - scene.cam.min_x) / (f32)width,
-      .y_ratio = (scene.cam.max_y - scene.cam.min_x) / (f32)height,
-      .scene = scene,
+      .x_ratio = (cam.max_x - cam.min_x) / (f32)width,
+      .y_ratio = (cam.max_y - cam.min_x) / (f32)height,
+      .cam = cam,
+      .light = light,
   };
+}
+
+void check_object_indices(usize vertices_len, usize *indices, usize indices_len) {
+  ASSERT(indices_len % 3 == 0);
+  for (usize i = 0; i < indices_len; ++i) {
+    usize index = indices[i];
+    ASSERT(index < vertices_len);
+  }
 }
 
 void free_renderer(Renderer renderer) {
@@ -193,22 +197,22 @@ f32 maxf3(f32 a, f32 b, f32 c) {
 }
 
 usize cam_to_pixel_x(const Renderer *renderer, f32 x) {
-  return (usize)((x - renderer->scene.cam.min_x) / renderer->x_ratio);
+  return (usize)((x - renderer->cam.min_x) / renderer->x_ratio);
 }
 
 /// Note that ordering of y is reversed!
 usize cam_to_pixel_y(const Renderer *renderer, f32 y) {
-  f32 dy = renderer->scene.cam.max_y - renderer->scene.cam.min_y;
-  return (usize)((dy - (y - renderer->scene.cam.min_y)) / renderer->y_ratio);
+  f32 dy = renderer->cam.max_y - renderer->cam.min_y;
+  return (usize)((dy - (y - renderer->cam.min_y)) / renderer->y_ratio);
 }
 
 f32 pixel_to_cam_x(const Renderer *renderer, usize x) {
-  return (f32)x * renderer->x_ratio + renderer->scene.cam.min_x;
+  return (f32)x * renderer->x_ratio + renderer->cam.min_x;
 }
 
 f32 pixel_to_cam_y(const Renderer *renderer, usize y) {
-  f32 dy = renderer->scene.cam.max_y - renderer->scene.cam.min_y;
-  return dy - (f32)y * renderer->y_ratio + renderer->scene.cam.min_y;
+  f32 dy = renderer->cam.max_y - renderer->cam.min_y;
+  return dy - (f32)y * renderer->y_ratio + renderer->cam.min_y;
 }
 
 void renderer_clear_frame(Renderer *renderer) {
@@ -220,12 +224,12 @@ void renderer_clear_frame(Renderer *renderer) {
 __attribute__((__always_inline__)) void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2,
                                                       draw_pixel_callback_t draw_pixel_callback) {
   // Project the triangle onto the camera plane.
-  Vec3 p0_proj = project_point(renderer->scene.cam, p0);
-  Vec3 p1_proj = project_point(renderer->scene.cam, p1);
-  Vec3 p2_proj = project_point(renderer->scene.cam, p2);
+  Vec3 p0_proj = project_point(renderer->cam, p0);
+  Vec3 p1_proj = project_point(renderer->cam, p1);
+  Vec3 p2_proj = project_point(renderer->cam, p2);
 
   // Calculate the frame that the triangle occupies so we can skip sampling pixels outside of this frame.
-  Camera_ cam = renderer->scene.cam;
+  Camera cam = renderer->cam;
   // Camera coords.
   f32 min_x_cam = maxf(minf3(p0_proj.get[0], p1_proj.get[0], p2_proj.get[0]), cam.min_x);
   f32 max_x_cam = minf(maxf3(p0_proj.get[0], p1_proj.get[0], p2_proj.get[0]), cam.max_x);
@@ -239,7 +243,7 @@ __attribute__((__always_inline__)) void draw_triangle(Renderer *renderer, Vec3 p
   usize max_y = min_usize(cam_to_pixel_y(renderer, min_y_cam) + 1, renderer->height);
 
   // The light level of this surface.
-  u8 light_level = surface_light_level(renderer->scene.light, triangle_normal(p0, p1, p2), 20);
+  u8 light_level = surface_light_level(renderer->light, triangle_normal(p0, p1, p2), 20);
 
   // Sample and draw the pixels.
   for (usize y = min_y; y < max_y; ++y) {
@@ -250,12 +254,21 @@ __attribute__((__always_inline__)) void draw_triangle(Renderer *renderer, Vec3 p
       f32 *prev_depth = &renderer->depth_buffer[y * renderer->width + x];
       if (depth < *prev_depth) {
         *prev_depth = depth;
+        // u8 light_level = (u8)(255 - (depth - 90) / 20 * 255);
         if (draw_pixel_callback != NULL)
           draw_pixel_callback(renderer->draw_pixel_callback_cx, renderer->width, renderer->height, x, y, depth,
                               light_level);
       }
     }
   }
+}
+
+char char_for_light_level(u8 light_level) {
+  static const char grayscale[] = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'.";
+  usize i = (usize)light_level / (256 / sizeof(grayscale) - 1);
+  if (i > sizeof(grayscale) - 2)
+    i = sizeof(grayscale) - 2;
+  return grayscale[i];
 }
 
 __attribute__((__always_inline__)) void draw_pixel_callback_ascii(void *cx, usize width, usize height, usize x, usize y,
@@ -282,55 +295,14 @@ void draw_triangle_gui(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2) {
 }
 
 i32 main() {
-  Vec3 vertices[] = {
-      {-5.0f, -5.0f, -5.0f}, //
-      {5.0f, -5.0f, -5.0f},  //
-      {5.0f, 5.0f, -5.0f},   //
-      {-5.0f, 5.0f, -5.0f},  //
-      {-5.0f, -5.0f, 5.0f},  //
-      {5.0f, -5.0f, 5.0f},   //
-      {5.0f, 5.0f, 5.0f},    //
-      {-5.0f, 5.0f, 5.0f},   //
-      {-5.0f, 5.0f, -5.0f},  //
-      {-5.0f, -5.0f, -5.0f}, //
-      {-5.0f, -5.0f, 5.0f},  //
-      {-5.0f, 5.0f, 5.0f},   //
-      {5.0f, -5.0f, -5.0f},  //
-      {5.0f, 5.0f, -5.0f},   //
-      {5.0f, 5.0f, 5.0f},    //
-      {5.0f, -5.0f, 5.0f},   //
-      {-5.0f, -5.0f, -5.0f}, //
-      {5.0f, -5.0f, -5.0f},  //
-      {5.0f, -5.0f, 5.0f},   //
-      {-5.0f, -5.0f, 5.0f},  //
-      {5.0f, 5.0f, -5.0f},   //
-      {-5.0f, 5.0f, -5.0f},  //
-      {-5.0f, 5.0f, 5.0f},   //
-      {5.0f, 5.0f, 5.0f},    //
-  };
-  // index data
-  usize indices[] = {
-      0,  3,  2,  //
-      2,  1,  0,  //
-      4,  5,  6,  //
-      6,  7,  4,  //
-      11, 8,  9,  //
-      9,  10, 11, //
-      12, 13, 14, //
-      14, 15, 12, //
-      16, 17, 18, //
-      18, 19, 16, //
-      20, 21, 22, //
-      22, 23, 20  //
-  };
 
   Vec3 light = {-10, 5, -1};
-  Camera_ cam = {
+  Camera cam = {
       .pos = {100, 0, 0},
-      .min_x = -10,
-      .min_y = -10,
-      .max_x = 10,
-      .max_y = 10,
+      .min_x = -2,
+      .min_y = -2,
+      .max_x = 2,
+      .max_y = 2,
   };
 
 #ifdef USE_RAYLIB
@@ -343,10 +315,10 @@ i32 main() {
   const usize height = 40;
 #endif
 
-  Renderer renderer = new_renderer((Scene){cam, light}, width, height);
+  Renderer renderer = new_renderer(width, height, cam, light);
 
-  apply_transform(rotate3d_y(to_rad(20)), vertices, ARR_LEN(vertices));
-  apply_transform(rotate3d_x(to_rad(40)), vertices, ARR_LEN(vertices));
+  apply_transform(rotate3d_x(to_rad(20)), teapot, ARR_LEN(teapot));
+  // apply_transform(rotate3d_x(to_rad(40)), teapot, ARR_LEN(teapot));
 
   Mat3x3 m = rotate3d_z(to_rad(60.0f) / fps);
 
@@ -359,10 +331,16 @@ i32 main() {
     apply_transform(m, vertices, ARR_LEN(vertices));
     renderer_clear_frame(&renderer);
     memset(frame_buffer, ' ', frame_buffer_size);
-    for (usize i = 0; i < ARR_LEN(indices); i += 3) {
-      Vec3 p0 = vertices[indices[i + 0]];
-      Vec3 p1 = vertices[indices[i + 1]];
-      Vec3 p2 = vertices[indices[i + 2]];
+    for (usize i = 0; i < ARR_LEN(body_indices); i += 3) {
+      Vec3 p0 = vertices[body_indices[i + 0]];
+      Vec3 p1 = vertices[body_indices[i + 1]];
+      Vec3 p2 = vertices[body_indices[i + 2]];
+      draw_triangle_ascii(&renderer, p0, p1, p2);
+    }
+    for (usize i = 0; i < ARR_LEN(handle_indices); i += 3) {
+      Vec3 p0 = vertices[handle_indices[i + 0]];
+      Vec3 p1 = vertices[handle_indices[i + 1]];
+      Vec3 p2 = vertices[handle_indices[i + 2]];
       draw_triangle_ascii(&renderer, p0, p1, p2);
     }
     for (usize y = 0; y < height; ++y) {
@@ -378,13 +356,13 @@ i32 main() {
   SetTraceLogLevel(LOG_ERROR);
   InitWindow((i32)width, (i32)height, "Render");
   while (!WindowShouldClose()) {
-    apply_transform(m, vertices, ARR_LEN(vertices));
+    apply_transform(m, teapot, ARR_LEN(teapot));
     renderer_clear_frame(&renderer);
     memset(frame_buffer, 0, width * height);
-    for (usize i = 0; i < ARR_LEN(indices); i += 3) {
-      Vec3 p0 = vertices[indices[i + 0]];
-      Vec3 p1 = vertices[indices[i + 1]];
-      Vec3 p2 = vertices[indices[i + 2]];
+    for (usize i = 0; i < ARR_LEN(teapot); i += 3) {
+      Vec3 p0 = teapot[i + 0];
+      Vec3 p1 = teapot[i + 1];
+      Vec3 p2 = teapot[i + 2];
       draw_triangle_gui(&renderer, p0, p1, p2);
     }
     Texture texture = LoadTextureFromImage((Image){
