@@ -27,11 +27,6 @@ Vec3 project_point(Camera_ cam, Vec3 p) {
   return (Vec3){p.get[1], p.get[2], cam.pos.get[0] - p.get[0]};
 }
 
-/// Normal vector of a triangle.
-Vec3 triangle_normal(Vec3 p0, Vec3 p1, Vec3 p2) {
-  return cross3(sub3(p2, p0), sub3(p1, p0));
-}
-
 f32 absf(f32 x) {
   return (x >= 0 ? x : -x);
 }
@@ -69,9 +64,9 @@ f32 triangular_interpolate_z(Vec3 p0, Vec3 p1, Vec3 p2, f32 x, f32 y) {
   //    y0 ~ y2 => p{0~2}.get[1]
   //    p{x|y}  => {x|y}
 
-  f32 w0 = ((p1.get[1] - p2.get[1]) * (x         - p2.get[0]) + (p2.get[0] - p1.get[0]) * (y         - p2.get[1])) /
+  f32 w0 = ((p1.get[1] - p2.get[1]) * (x - p2.get[0]) + (p2.get[0] - p1.get[0]) * (y - p2.get[1])) /
            ((p1.get[1] - p2.get[1]) * (p0.get[0] - p2.get[0]) + (p2.get[0] - p1.get[0]) * (p0.get[1] - p2.get[1]));
-  f32 w1 = ((p2.get[1] - p0.get[1]) * (x         - p2.get[0]) + (p0.get[0] - p2.get[0]) * (y         - p2.get[1])) /
+  f32 w1 = ((p2.get[1] - p0.get[1]) * (x - p2.get[0]) + (p0.get[0] - p2.get[0]) * (y - p2.get[1])) /
            ((p1.get[1] - p2.get[1]) * (p0.get[0] - p2.get[0]) + (p2.get[0] - p1.get[0]) * (p0.get[1] - p2.get[1]));
   f32 w2 = 1 - w0 - w1;
 
@@ -85,6 +80,11 @@ f32 triangular_interpolate_z(Vec3 p0, Vec3 p1, Vec3 p2, f32 x, f32 y) {
   return 1 / z_;
 }
 
+/// Normal vector of a triangle.
+Vec3 triangle_normal(Vec3 p0, Vec3 p1, Vec3 p2) {
+  return cross3(sub3(p2, p0), sub3(p1, p0));
+}
+
 /// The light level of a surface.
 u8 surface_light_level(Vec3 light, Vec3 normal) {
   // return 255;
@@ -93,7 +93,6 @@ u8 surface_light_level(Vec3 light, Vec3 normal) {
   if (angle > to_rad(90))
     angle = to_rad(180) - angle;
   f32 light_level = 1 - (angle / to_rad(90));
-  light_level = sqrtf(light_level); // make it brigher
   return (u8)(light_level * 255);
 }
 
@@ -131,7 +130,6 @@ void apply_transform(Mat3x3 m, Vec3 *vertices, usize vertices_len) {
 
 typedef struct renderer {
   Vec3 *projs_buffer;
-  u8 *light_buffer;
   Scene scene;
   void *draw_pixel_callback_cx;
 } Renderer;
@@ -142,10 +140,8 @@ Renderer new_renderer(const Scene scene) {
     ASSERT(scene.indices[i] < scene.vertices_len);
   }
   Vec3 *projs_buffer = xalloc(Vec3, scene.vertices_len);
-  u8 *light_buffer = xalloc(u8, scene.indices_len / 3);
   return (Renderer){
       .projs_buffer = projs_buffer,
-      .light_buffer = light_buffer,
       .scene = scene,
   };
 }
@@ -166,18 +162,6 @@ __attribute__((__always_inline__)) void render(Renderer *renderer, usize width, 
     Vec3 p = project_point(renderer->scene.cam, renderer->scene.vertices[i]);
     renderer->projs_buffer[i] = p;
   }
-  // Lights.
-  for (usize i_ = 0; i_ < renderer->scene.indices_len; i_ += 3) {
-    usize i = renderer->scene.indices[i_ + 0];
-    usize j = renderer->scene.indices[i_ + 1];
-    usize k = renderer->scene.indices[i_ + 2];
-    Vec3 p0 = renderer->scene.vertices[i];
-    Vec3 p1 = renderer->scene.vertices[j];
-    Vec3 p2 = renderer->scene.vertices[k];
-    Vec3 normal = triangle_normal(p0, p1, p2);
-    u8 light_level = surface_light_level(renderer->scene.light, normal);
-    renderer->light_buffer[i_ / 3] = light_level;
-  }
 
   // Draw frame.
   for (usize pixel_y = 0; pixel_y < width; ++pixel_y) {
@@ -191,13 +175,17 @@ __attribute__((__always_inline__)) void render(Renderer *renderer, usize width, 
         usize i = renderer->scene.indices[i_ + 0];
         usize j = renderer->scene.indices[i_ + 1];
         usize k = renderer->scene.indices[i_ + 2];
+        Vec3 p0 = renderer->scene.vertices[i];
+        Vec3 p1 = renderer->scene.vertices[j];
+        Vec3 p2 = renderer->scene.vertices[k];
         Vec3 p0_proj = renderer->projs_buffer[i];
         Vec3 p1_proj = renderer->projs_buffer[j];
         Vec3 p2_proj = renderer->projs_buffer[k];
         f32 depth = triangular_interpolate_z(p0_proj, p1_proj, p2_proj, camera_x, camera_y);
         if (depth < min_depth) {
           min_depth = depth;
-          light_level = renderer->light_buffer[i_ / 3];
+          Vec3 normal = triangle_normal(p0, p1, p2);
+          light_level = surface_light_level(renderer->scene.light, normal);
         }
       }
       if (draw_pixel_callback != NULL)
@@ -291,38 +279,38 @@ i32 main() {
   Mat3x3 m = rotate3d_z(to_rad(180.0f / fps));
 
 #ifndef USE_RAYLIB
-    usize width = 40;
-    usize height = 40;
-    usize frame_buffer_size = (width * 2 + 1) * height;
-    char *frame_buffer = xalloc(char, frame_buffer_size);
+  usize width = 40;
+  usize height = 40;
+  usize frame_buffer_size = (width * 2 + 1) * height;
+  char *frame_buffer = xalloc(char, frame_buffer_size);
 
-    for (;;) {
-      apply_transform(m, renderer.scene.vertices, renderer.scene.vertices_len);
-      render_ascii(&renderer, width, height, frame_buffer);
-      fwrite(frame_buffer, frame_buffer_size, 1, stdout);
-      usleep((useconds_t)(1e6 / fps));
-    }
+  for (;;) {
+    apply_transform(m, renderer.scene.vertices, renderer.scene.vertices_len);
+    render_ascii(&renderer, width, height, frame_buffer);
+    fwrite(frame_buffer, frame_buffer_size, 1, stdout);
+    usleep((useconds_t)(1e6 / fps));
+  }
 #else
-    usize width = 800;
-    usize height = 800;
-    u8 *frame_buffer = xalloc(u8, width * height);
-    SetTraceLogLevel(LOG_ERROR);
-    InitWindow((i32)width, (i32)height, "Render");
-    while (!WindowShouldClose()) {
-      apply_transform(m, renderer.scene.vertices, renderer.scene.vertices_len);
-      render_pixels(&renderer, width, height, frame_buffer);
-      Texture texture = LoadTextureFromImage((Image){
-          .width = (i32)width,
-          .height = (i32)height,
-          .data = frame_buffer,
-          .format = PIXELFORMAT_UNCOMPRESSED_GRAYSCALE,
-          .mipmaps = 1,
-      });
-      BeginDrawing();
-      DrawTexture(texture, 0, 0, WHITE);
-      EndDrawing();
-      usleep((useconds_t)(1e6 / fps));
-    }
+  usize width = 800;
+  usize height = 800;
+  u8 *frame_buffer = xalloc(u8, width * height);
+  SetTraceLogLevel(LOG_ERROR);
+  InitWindow((i32)width, (i32)height, "Render");
+  while (!WindowShouldClose()) {
+    apply_transform(m, renderer.scene.vertices, renderer.scene.vertices_len);
+    render_pixels(&renderer, width, height, frame_buffer);
+    Texture texture = LoadTextureFromImage((Image){
+        .width = (i32)width,
+        .height = (i32)height,
+        .data = frame_buffer,
+        .format = PIXELFORMAT_UNCOMPRESSED_GRAYSCALE,
+        .mipmaps = 1,
+    });
+    BeginDrawing();
+    DrawTexture(texture, 0, 0, WHITE);
+    EndDrawing();
+    usleep((useconds_t)(1e6 / fps));
+  }
 #endif
 
   return 0;

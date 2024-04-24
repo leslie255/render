@@ -162,9 +162,9 @@ static inline Vec3 cross3(Vec3 x, Vec3 y) {
   // [ x1 ] X [ y1 ] = [ x2 y0 - x0 y2 ]
   // [ x2 ]   [ y2 ]   [ x0 y1 - x1 y0 ]
   return (Vec3){{
-      x.get[1] * y.get[2] - x.get[2] - y.get[1],
-      x.get[2] * y.get[0] - x.get[0] - y.get[2],
-      x.get[0] * y.get[1] - x.get[1] - y.get[0],
+      x.get[1] * y.get[2] - x.get[2] * y.get[1],
+      x.get[2] * y.get[0] - x.get[0] * y.get[2],
+      x.get[0] * y.get[1] - x.get[1] * y.get[0],
   }};
 }
 
