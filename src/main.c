@@ -17,12 +17,13 @@ typedef struct camera {
   Vec3 pos;
   f32 min_x;
   f32 min_y;
-  f32 dx;
-  f32 dy;
+  f32 max_x;
+  f32 max_y;
 } Camera_;
 
 /// Project a point to the camera.
-/// Returns a Vec3, in which the x and y values are the on-screen position, z is the depth.
+/// Returns a Vec3, in which the x and y values are the on-screen position, z is
+/// the depth.
 Vec3 project_point(Camera_ cam, Vec3 p) {
   return (Vec3){p.get[1], p.get[2], cam.pos.get[0] - p.get[0]};
 }
@@ -45,8 +46,8 @@ bool is_in_triangle(Vec3 p0, Vec3 p1, Vec3 p2, f32 x, f32 y) {
   return absf(d) < 1e-3;
 }
 
-/// From a projected triangle (calculated by `project_point`), calculate depth on (x, y).
-/// If outside triangle returns infinity.
+/// From a projected triangle (calculated by `project_point`), calculate depth
+/// on (x, y). If outside triangle returns infinity.
 f32 triangular_interpolate_z(Vec3 p0, Vec3 p1, Vec3 p2, f32 x, f32 y) {
   if (!is_in_triangle(p0, p1, p2, x, y))
     return INFINITY;
@@ -87,7 +88,6 @@ Vec3 triangle_normal(Vec3 p0, Vec3 p1, Vec3 p2) {
 
 /// The light level of a surface.
 u8 surface_light_level(Vec3 light, Vec3 normal) {
-  // return 255;
   //  angle = arccos ( (a . b) / (|a| |b|) )
   f32 angle = acosf(dot3(light, normal) / (abs3(normal) * abs3(light)));
   if (angle > to_rad(90))
@@ -113,10 +113,6 @@ char char_for_light_level(u8 light_level) {
 }
 
 typedef struct scene {
-  Vec3 *vertices;
-  usize vertices_len;
-  usize *indices;
-  usize indices_len;
   Camera_ cam;
   Vec3 light;
 } Scene;
@@ -128,20 +124,30 @@ void apply_transform(Mat3x3 m, Vec3 *vertices, usize vertices_len) {
   }
 }
 
+/// SAFETY: Only use new_renderer to construct this.
 typedef struct renderer {
   Vec3 *projs_buffer;
+  usize width;
+  usize height;
+  /// For converting between camera coords and pixel coords.
+  f32 x_ratio;
+  /// For converting between camera coords and pixel coords.
+  f32 y_ratio;
+  /// LEN: width * height.
+  f32 *depth_buffer;
   Scene scene;
   void *draw_pixel_callback_cx;
 } Renderer;
 
-Renderer new_renderer(const Scene scene) {
-  ASSERT(scene.indices_len % 3 == 0);
-  for (usize i = 0; i < scene.indices_len; i++) {
-    ASSERT(scene.indices[i] < scene.vertices_len);
-  }
-  Vec3 *projs_buffer = xalloc(Vec3, scene.vertices_len);
+Renderer new_renderer(const Scene scene, usize width, usize height) {
+  ASSERT(scene.cam.max_x > scene.cam.min_x);
+  ASSERT(scene.cam.max_y > scene.cam.min_y);
   return (Renderer){
-      .projs_buffer = projs_buffer,
+      .depth_buffer = xalloc(f32, width * height),
+      .width = width,
+      .height = height,
+      .x_ratio = (scene.cam.max_x - scene.cam.min_x) / (f32)width,
+      .y_ratio = (scene.cam.max_y - scene.cam.min_x) / (f32)height,
       .scene = scene,
   };
 }
@@ -153,78 +159,119 @@ void free_renderer(Renderer renderer) {
 typedef void(draw_pixel_callback_t)(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level);
 typedef void(draw_eol_callback_t)(void *cx, usize width, usize height, usize y);
 
-/// Frame buffer must be of size `(width * 2 + 1) * height`.
-__attribute__((__always_inline__)) void render(Renderer *renderer, usize width, usize height,
-                                               draw_pixel_callback_t draw_pixel_callback,
-                                               draw_eol_callback_t draw_eol_callback) {
-  // Projections.
-  for (usize i = 0; i < renderer->scene.vertices_len; ++i) {
-    Vec3 p = project_point(renderer->scene.cam, renderer->scene.vertices[i]);
-    renderer->projs_buffer[i] = p;
-  }
+f32 minf(f32 a, f32 b) {
+  return (a < b) ? a : b;
+}
 
-  // Draw frame.
-  for (usize pixel_y = 0; pixel_y < width; ++pixel_y) {
-    f32 camera_y =
-        renderer->scene.cam.min_y + renderer->scene.cam.dy - renderer->scene.cam.dy * ((f32)pixel_y / (f32)height);
-    for (usize pixel_x = 0; pixel_x < height; ++pixel_x) {
-      f32 camera_x = renderer->scene.cam.min_x + renderer->scene.cam.dx * ((f32)pixel_x / (f32)width);
-      u8 light_level = 0;
-      f32 min_depth = INFINITY;
-      for (usize i_ = 0; i_ < renderer->scene.indices_len; i_ += 3) {
-        usize i = renderer->scene.indices[i_ + 0];
-        usize j = renderer->scene.indices[i_ + 1];
-        usize k = renderer->scene.indices[i_ + 2];
-        Vec3 p0 = renderer->scene.vertices[i];
-        Vec3 p1 = renderer->scene.vertices[j];
-        Vec3 p2 = renderer->scene.vertices[k];
-        Vec3 p0_proj = renderer->projs_buffer[i];
-        Vec3 p1_proj = renderer->projs_buffer[j];
-        Vec3 p2_proj = renderer->projs_buffer[k];
-        f32 depth = triangular_interpolate_z(p0_proj, p1_proj, p2_proj, camera_x, camera_y);
-        if (depth < min_depth) {
-          min_depth = depth;
-          Vec3 normal = triangle_normal(p0, p1, p2);
-          light_level = surface_light_level(renderer->scene.light, normal);
-        }
-      }
-      if (draw_pixel_callback != NULL)
-        draw_pixel_callback(renderer->draw_pixel_callback_cx, width, height, pixel_x, pixel_y, min_depth, light_level);
-    }
-    if (draw_eol_callback != NULL)
-      draw_eol_callback(renderer->draw_pixel_callback_cx, width, height, pixel_y);
+f32 maxf(f32 a, f32 b) {
+  return (a > b) ? a : b;
+}
+
+f32 minf3(f32 a, f32 b, f32 c) {
+  f32 min = a;
+  if (b < min)
+    min = b;
+  if (c < min)
+    min = c;
+  return min;
+}
+
+f32 maxf3(f32 a, f32 b, f32 c) {
+  f32 max = a;
+  if (b > max)
+    max = b;
+  if (c > max)
+    max = c;
+  return max;
+}
+
+usize cam_to_pixel_x(const Renderer *renderer, f32 x) {
+  return (usize)((x - renderer->scene.cam.min_x) / renderer->x_ratio);
+}
+
+/// Note that ordering of y is reversed!
+usize cam_to_pixel_y(const Renderer *renderer, f32 y) {
+  f32 dy = renderer->scene.cam.max_y - renderer->scene.cam.min_y;
+  return (usize)((dy - (y - renderer->scene.cam.min_y)) / renderer->y_ratio);
+}
+
+f32 pixel_to_cam_x(const Renderer *renderer, usize x) {
+  return (f32)x * renderer->x_ratio + renderer->scene.cam.min_x;
+}
+
+f32 pixel_to_cam_y(const Renderer *renderer, usize y) {
+  f32 dy = renderer->scene.cam.max_y - renderer->scene.cam.min_y;
+  return dy - (f32)y * renderer->y_ratio + renderer->scene.cam.min_y;
+}
+
+void renderer_clear_frame(Renderer *renderer) {
+  for (usize i = 0; i < renderer->width * renderer->height; ++i) {
+    renderer->depth_buffer[i] = INFINITY;
   }
 }
 
-__attribute__((__always_inline__)) void draw_pixel_ascii(void *cx, usize width, usize height, usize x, usize y,
-                                                         f32 depth, u8 light_level) {
+__attribute__((__always_inline__)) void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2,
+                                                      draw_pixel_callback_t draw_pixel_callback) {
+  // Project the triangle onto the camera plane.
+  Vec3 p0_proj = project_point(renderer->scene.cam, p0);
+  Vec3 p1_proj = project_point(renderer->scene.cam, p1);
+  Vec3 p2_proj = project_point(renderer->scene.cam, p2);
+
+  // Calculate the frame that the triangle occupies so we can skip sampling pixels outside of this frame.
+  Camera_ cam = renderer->scene.cam;
+  // Camera coords.
+  f32 min_x_cam = maxf(minf3(p0_proj.get[0], p1_proj.get[0], p2_proj.get[0]), cam.min_x);
+  f32 max_x_cam = minf(maxf3(p0_proj.get[0], p1_proj.get[0], p2_proj.get[0]), cam.max_x);
+  f32 min_y_cam = maxf(minf3(p0_proj.get[1], p1_proj.get[1], p2_proj.get[1]), cam.min_y);
+  f32 max_y_cam = minf(maxf3(p0_proj.get[1], p1_proj.get[1], p2_proj.get[1]), cam.max_y);
+  // Pixel coords.
+  // Adds some extra pixels to the frame to compensate for floating point inaccuracies.
+  usize min_x = cam_to_pixel_x(renderer, min_x_cam) + 1;
+  usize max_x = cam_to_pixel_x(renderer, max_x_cam) + 1;
+  usize min_y = cam_to_pixel_y(renderer, max_y_cam) + 1;
+  usize max_y = cam_to_pixel_y(renderer, min_y_cam) + 1;
+
+  // The light level of this surface.
+  u8 light_level = surface_light_level(renderer->scene.light, triangle_normal(p0, p1, p2));
+
+  // Sample and draw the pixels.
+  for (usize y = min_y; y < max_y; ++y) {
+    for (usize x = min_x; x < max_x; ++x) {
+      f32 cam_x = pixel_to_cam_x(renderer, x);
+      f32 cam_y = pixel_to_cam_y(renderer, y);
+      f32 depth = triangular_interpolate_z(p0_proj, p1_proj, p2_proj, cam_x, cam_y);
+      f32 *prev_depth = &renderer->depth_buffer[y * renderer->width + x];
+      if (depth < *prev_depth) {
+        *prev_depth = depth;
+        if (draw_pixel_callback != NULL)
+          draw_pixel_callback(renderer->draw_pixel_callback_cx, renderer->width, renderer->height, x, y, depth,
+                              light_level);
+      }
+    }
+  }
+}
+
+__attribute__((__always_inline__)) void draw_pixel_callback_ascii(void *cx, usize width, usize height, usize x, usize y,
+                                                                  f32 depth, u8 light_level) {
   char *frame_buffer = cx;
-  char c = (depth == INFINITY) ? ' ' : char_for_light_level(light_level);
+  char c = char_for_light_level(light_level);
   usize i = (y * (width * 2 + 1)) + x * 2;
   frame_buffer[i + 0] = c;
   frame_buffer[i + 1] = c;
 }
 
-__attribute__((__always_inline__)) void draw_eol_ascii(void *cx, usize width, usize height, usize y) {
-  char *frame_buffer = cx;
-  frame_buffer[(y * (width * 2 + 1)) + width * 2] = '\n';
+void draw_triangle_ascii(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2) {
+  draw_triangle(renderer, p0, p1, p2, draw_pixel_callback_ascii);
 }
 
-void render_ascii(Renderer *renderer, usize width, usize height, char *frame_buffer) {
-  renderer->draw_pixel_callback_cx = frame_buffer;
-  render(renderer, width, height, draw_pixel_ascii, draw_eol_ascii);
-}
-
-__attribute__((__always_inline__)) void draw_pixel_pixel(void *cx, usize width, usize height, usize x, usize y,
-                                                         f32 depth, u8 light_level) {
+__attribute__((__always_inline__)) void draw_pixel_callback_gui(void *cx, usize width, usize height, usize x, usize y,
+                                                                f32 depth, u8 light_level) {
   u8 *frame_buffer = cx;
   frame_buffer[y * width + x] = light_level;
 }
 
-/// Frame buffer must be of size `width*height`.
-void render_pixels(Renderer *renderer, usize width, usize height, u8 *frame_buffer) {
-  renderer->draw_pixel_callback_cx = frame_buffer;
-  render(renderer, width, height, draw_pixel_pixel, NULL);
+void draw_triangle_gui(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2) {
+  draw_triangle(renderer, p0, p1, p2, draw_pixel_callback_gui);
 }
 
 i32 main() {
@@ -258,47 +305,64 @@ i32 main() {
       .pos = {100, 0, 0},
       .min_x = -10,
       .min_y = -10,
-      .dx = 20,
-      .dy = 20,
+      .max_x = 10,
+      .max_y = 10,
   };
 
-  Renderer renderer = new_renderer((Scene){
-      .vertices = vertices,
-      .vertices_len = ARR_LEN(vertices),
-      .indices = indices,
-      .indices_len = ARR_LEN(indices),
-      .cam = cam,
-      .light = light,
-  });
-
-  apply_transform(rotate3d_y(to_rad(30)), renderer.scene.vertices, renderer.scene.vertices_len);
-  apply_transform(rotate3d_x(to_rad(20)), renderer.scene.vertices, renderer.scene.vertices_len);
-
+#ifdef USE_RAYLIB
   const f32 fps = 60;
+  const usize width = 800;
+  const usize height = 800;
+#else
+  const f32 fps = 24;
+  const usize width = 20;
+  const usize height = 20;
+#endif
 
-  Mat3x3 m = rotate3d_z(to_rad(180.0f / fps));
+  Renderer renderer = new_renderer((Scene){cam, light}, width, height);
+
+  apply_transform(rotate3d_y(to_rad(20)), vertices, ARR_LEN(vertices));
+  apply_transform(rotate3d_x(to_rad(40)), vertices, ARR_LEN(vertices));
+
+  Mat3x3 m = rotate3d_z(to_rad(60.0f) / fps);
 
 #ifndef USE_RAYLIB
-  usize width = 40;
-  usize height = 40;
   usize frame_buffer_size = (width * 2 + 1) * height;
   char *frame_buffer = xalloc(char, frame_buffer_size);
+  renderer.draw_pixel_callback_cx = frame_buffer;
 
   for (;;) {
-    apply_transform(m, renderer.scene.vertices, renderer.scene.vertices_len);
-    render_ascii(&renderer, width, height, frame_buffer);
+    apply_transform(m, vertices, ARR_LEN(vertices));
+    renderer_clear_frame(&renderer);
+    memset(frame_buffer, ' ', frame_buffer_size);
+    for (usize i = 0; i < ARR_LEN(indices); i += 3) {
+      Vec3 p0 = vertices[indices[i + 0]];
+      Vec3 p1 = vertices[indices[i + 1]];
+      Vec3 p2 = vertices[indices[i + 2]];
+      draw_triangle_ascii(&renderer, p0, p1, p2);
+    }
+    for (usize y = 0; y < height; ++y) {
+      frame_buffer[(y * (width * 2 + 1)) + width * 2] = '\n';
+    }
     fwrite(frame_buffer, frame_buffer_size, 1, stdout);
+    fflush(stdout);
     usleep((useconds_t)(1e6 / fps));
   }
 #else
-  usize width = 800;
-  usize height = 800;
   u8 *frame_buffer = xalloc(u8, width * height);
+  renderer.draw_pixel_callback_cx = frame_buffer;
   SetTraceLogLevel(LOG_ERROR);
   InitWindow((i32)width, (i32)height, "Render");
   while (!WindowShouldClose()) {
-    apply_transform(m, renderer.scene.vertices, renderer.scene.vertices_len);
-    render_pixels(&renderer, width, height, frame_buffer);
+    apply_transform(m, vertices, ARR_LEN(vertices));
+    renderer_clear_frame(&renderer);
+    memset(frame_buffer, 0, width * height);
+    for (usize i = 0; i < ARR_LEN(indices); i += 3) {
+      Vec3 p0 = vertices[indices[i + 0]];
+      Vec3 p1 = vertices[indices[i + 1]];
+      Vec3 p2 = vertices[indices[i + 2]];
+      draw_triangle_gui(&renderer, p0, p1, p2);
+    }
     Texture texture = LoadTextureFromImage((Image){
         .width = (i32)width,
         .height = (i32)height,
