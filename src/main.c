@@ -3,7 +3,6 @@
 #include "debug_utils.h"
 #include "mat.h"
 
-#define USE_RAYLIB
 #ifdef USE_RAYLIB
 #include <sys/time.h>
 #include <raylib.h>
@@ -328,19 +327,13 @@ i32 main() {
   renderer.draw_pixel_callback_cx = frame_buffer;
 
   for (;;) {
-    apply_transform(m, vertices, ARR_LEN(vertices));
+    apply_transform(m, teapot, ARR_LEN(teapot));
     renderer_clear_frame(&renderer);
     memset(frame_buffer, ' ', frame_buffer_size);
-    for (usize i = 0; i < ARR_LEN(body_indices); i += 3) {
-      Vec3 p0 = vertices[body_indices[i + 0]];
-      Vec3 p1 = vertices[body_indices[i + 1]];
-      Vec3 p2 = vertices[body_indices[i + 2]];
-      draw_triangle_ascii(&renderer, p0, p1, p2);
-    }
-    for (usize i = 0; i < ARR_LEN(handle_indices); i += 3) {
-      Vec3 p0 = vertices[handle_indices[i + 0]];
-      Vec3 p1 = vertices[handle_indices[i + 1]];
-      Vec3 p2 = vertices[handle_indices[i + 2]];
+    for (usize i = 0; i < ARR_LEN(teapot); i += 3) {
+      Vec3 p0 = teapot[i+0];
+      Vec3 p1 = teapot[i+1];
+      Vec3 p2 = teapot[i+2];
       draw_triangle_ascii(&renderer, p0, p1, p2);
     }
     for (usize y = 0; y < height; ++y) {
