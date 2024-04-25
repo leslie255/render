@@ -266,8 +266,8 @@ always_inline void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, 
   }
 }
 
-always_inline void draw_object(Renderer *renderer, const Vec3 *vertices, const usize *indices, usize indices_len, Mat4x4 m,
-                               draw_pixel_callback_t draw_pixel_callback) {
+always_inline void draw_object(Renderer *renderer, const Vec3 *vertices, const usize *indices, usize indices_len,
+                               Mat4x4 m, draw_pixel_callback_t draw_pixel_callback) {
   for (usize i = 0; i < indices_len; i += 3) {
     Vec3 p0 = vertices[indices[i + 0]];
     Vec3 p1 = vertices[indices[i + 1]];
@@ -278,7 +278,7 @@ always_inline void draw_object(Renderer *renderer, const Vec3 *vertices, const u
 
 always_inline void draw_object_indexless(Renderer *renderer, const Vec3 *vertices, usize vertices_len, Mat4x4 m,
                                          draw_pixel_callback_t draw_pixel_callback) {
-  for (usize i = 0; i < vertices_len; ++i) {
+  for (usize i = 0; i < vertices_len; i += 3) {
     Vec3 p0 = vertices[i + 0];
     Vec3 p1 = vertices[i + 1];
     Vec3 p2 = vertices[i + 2];
@@ -389,12 +389,7 @@ i32 main() {
     m = mul4x4(rotate, m);
     renderer_clear_frame(&renderer);
     memset(frame_buffer, 0, width * height);
-    for (usize i = 0; i < ARR_LEN(teapot); i += 3) {
-      Vec3 p0 = teapot[i + 0];
-      Vec3 p1 = teapot[i + 1];
-      Vec3 p2 = teapot[i + 2];
-      draw_triangle_gui(&renderer, p0, p1, p2, m);
-    }
+    draw_object_indexless_gui(&renderer, teapot, ARR_LEN(teapot), m);
     Texture texture = LoadTextureFromImage((Image){
         .width = (i32)width,
         .height = (i32)height,
