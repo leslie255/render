@@ -3,6 +3,8 @@
 #include "debug_utils.h"
 #include "mat.h"
 
+#define always_inline __attribute__((__always_inline__))
+
 #ifdef USE_RAYLIB
 #include <sys/time.h>
 #include <raylib.h>
@@ -214,11 +216,15 @@ void renderer_clear_frame(Renderer *renderer) {
   }
 }
 
-__attribute__((__always_inline__)) void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m,
-                                                      draw_pixel_callback_t draw_pixel_callback) {
-  Vec3 p0_ = vec4to3(mul4x4_4(m, vec3to4(p0)));
-  Vec3 p1_ = vec4to3(mul4x4_4(m, vec3to4(p1)));
-  Vec3 p2_ = vec4to3(mul4x4_4(m, vec3to4(p2)));
+Vec3 transform(Mat4x4 m, Vec3 v) {
+  return vec4to3(mul4x4_4(m, vec3to4(v)));
+}
+
+always_inline void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m,
+                                 draw_pixel_callback_t draw_pixel_callback) {
+  Vec3 p0_ = transform(m, p0);
+  Vec3 p1_ = transform(m, p1);
+  Vec3 p2_ = transform(m, p2);
 
   // Project the triangle onto the camera plane.
   Vec3 p0_proj = project_point(renderer->cam, p0_);
@@ -260,6 +266,26 @@ __attribute__((__always_inline__)) void draw_triangle(Renderer *renderer, Vec3 p
   }
 }
 
+always_inline void draw_object(Renderer *renderer, const Vec3 *vertices, const usize *indices, usize indices_len, Mat4x4 m,
+                               draw_pixel_callback_t draw_pixel_callback) {
+  for (usize i = 0; i < indices_len; i += 3) {
+    Vec3 p0 = vertices[indices[i + 0]];
+    Vec3 p1 = vertices[indices[i + 1]];
+    Vec3 p2 = vertices[indices[i + 2]];
+    draw_triangle(renderer, p0, p1, p2, m, draw_pixel_callback);
+  }
+}
+
+always_inline void draw_object_indexless(Renderer *renderer, const Vec3 *vertices, usize vertices_len, Mat4x4 m,
+                                         draw_pixel_callback_t draw_pixel_callback) {
+  for (usize i = 0; i < vertices_len; ++i) {
+    Vec3 p0 = vertices[i + 0];
+    Vec3 p1 = vertices[i + 1];
+    Vec3 p2 = vertices[i + 2];
+    draw_triangle(renderer, p0, p1, p2, m, draw_pixel_callback);
+  }
+}
+
 char char_for_light_level(u8 light_level) {
   static const char grayscale[] = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'.";
   usize i = (usize)light_level / (256 / sizeof(grayscale) - 1);
@@ -268,8 +294,8 @@ char char_for_light_level(u8 light_level) {
   return grayscale[i];
 }
 
-__attribute__((__always_inline__)) void draw_pixel_callback_ascii(void *cx, usize width, usize height, usize x, usize y,
-                                                                  f32 depth, u8 light_level) {
+always_inline void draw_pixel_callback_ascii(void *cx, usize width, usize height, usize x, usize y, f32 depth,
+                                             u8 light_level) {
   char *frame_buffer = cx;
   char c = char_for_light_level(light_level);
   usize i = (y * (width * 2 + 1)) + x * 2;
@@ -277,18 +303,34 @@ __attribute__((__always_inline__)) void draw_pixel_callback_ascii(void *cx, usiz
   frame_buffer[i + 1] = c;
 }
 
-void draw_triangle_ascii(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m) {
-  draw_triangle(renderer, p0, p1, p2, m, draw_pixel_callback_ascii);
-}
-
-__attribute__((__always_inline__)) void draw_pixel_callback_gui(void *cx, usize width, usize height, usize x, usize y,
-                                                                f32 depth, u8 light_level) {
+always_inline void draw_pixel_callback_gui(void *cx, usize width, usize height, usize x, usize y, f32 depth,
+                                           u8 light_level) {
   u8 *frame_buffer = cx;
   frame_buffer[y * width + x] = light_level;
 }
 
+void draw_triangle_ascii(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m) {
+  draw_triangle(renderer, p0, p1, p2, m, draw_pixel_callback_ascii);
+}
+
 void draw_triangle_gui(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m) {
   draw_triangle(renderer, p0, p1, p2, m, draw_pixel_callback_gui);
+}
+
+void draw_object_ascii(Renderer *renderer, const Vec3 *vertices, const usize *indices, usize indices_len, Mat4x4 m) {
+  draw_object(renderer, vertices, indices, indices_len, m, draw_pixel_callback_ascii);
+}
+
+void draw_object_gui(Renderer *renderer, const Vec3 *vertices, const usize *indices, usize indices_len, Mat4x4 m) {
+  draw_object(renderer, vertices, indices, indices_len, m, draw_pixel_callback_gui);
+}
+
+void draw_object_indexless_ascii(Renderer *renderer, const Vec3 *vertices, usize vertices_len, Mat4x4 m) {
+  draw_object_indexless(renderer, vertices, vertices_len, m, draw_pixel_callback_ascii);
+}
+
+void draw_object_indexless_gui(Renderer *renderer, const Vec3 *vertices, usize vertices_len, Mat4x4 m) {
+  draw_object_indexless(renderer, vertices, vertices_len, m, draw_pixel_callback_gui);
 }
 
 i32 main() {
@@ -316,7 +358,7 @@ i32 main() {
 
   Mat4x4 m = mat4x4_id;
 
-  m = mul4x4(translate3d((Vec3){0, 0, -1}), m);
+  m = mul4x4(translate3d((Vec3){0, 0, -0.7f}), m);
   m = mul4x4(mat3x3to4x4(rotate3d_x(to_rad(20))), m);
 
   Mat4x4 rotate = mat3x3to4x4(rotate3d_z(to_rad(60.0f) / fps));
@@ -330,12 +372,7 @@ i32 main() {
     m = mul4x4(rotate, m);
     renderer_clear_frame(&renderer);
     memset(frame_buffer, ' ', frame_buffer_size);
-    for (usize i = 0; i < ARR_LEN(teapot); i += 3) {
-      Vec3 p0 = teapot[i + 0];
-      Vec3 p1 = teapot[i + 1];
-      Vec3 p2 = teapot[i + 2];
-      draw_triangle_ascii(&renderer, p0, p1, p2, m);
-    }
+    draw_object_indexless_ascii(&renderer, teapot, ARR_LEN(teapot), m);
     for (usize y = 0; y < height; ++y) {
       frame_buffer[(y * (width * 2 + 1)) + width * 2] = '\n';
     }
