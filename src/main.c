@@ -34,6 +34,39 @@ Vec3 project_point(Camera cam, Vec3 p) {
   return (Vec3){p.get[1], p.get[2], cam.pos.get[0] - p.get[0]};
 }
 
+usize max_usize(usize a, usize b) {
+  return (a > b) ? a : b;
+}
+usize min_usize(usize a, usize b) {
+  return (a < b) ? a : b;
+}
+
+f32 minf(f32 a, f32 b) {
+  return (a < b) ? a : b;
+}
+
+f32 maxf(f32 a, f32 b) {
+  return (a > b) ? a : b;
+}
+
+f32 minf3(f32 a, f32 b, f32 c) {
+  f32 min = a;
+  if (b < min)
+    min = b;
+  if (c < min)
+    min = c;
+  return min;
+}
+
+f32 maxf3(f32 a, f32 b, f32 c) {
+  f32 max = a;
+  if (b > max)
+    max = b;
+  if (c > max)
+    max = c;
+  return max;
+}
+
 f32 absf(f32 x) {
   return (x >= 0 ? x : -x);
 }
@@ -93,14 +126,15 @@ Vec3 triangle_normal(Vec3 p0, Vec3 p1, Vec3 p2) {
 }
 
 /// The light level of a surface.
-u8 surface_light_level(Vec3 light, Vec3 normal, u8 min) {
+u8 surface_light_level(Vec3 light, Vec3 normal, u8 floor) {
   //  angle = arccos ( (a . b) / (|a| |b|) )
   f32 angle = acosf(dot3(light, normal) / (abs3(normal) * abs3(light)));
   if (angle > to_rad(90))
-    return min;
-  f32 light_level = 1 - (angle / to_rad(90));
-  u8 x = (u8)(light_level * 255);
-  return x > min ? x : min;
+    return floor;
+  f32 light_level = (1 - (angle / to_rad(90))) * 255;
+  f32 floor_ = (f32)floor;
+  u8 x = (u8)(light_level * (255 - floor_) / 255 + floor_);
+  return x > floor ? x : floor;
 }
 
 typedef struct frame {
@@ -155,39 +189,6 @@ void free_renderer(Renderer renderer) {
 
 typedef void(draw_pixel_callback_t)(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level);
 
-usize max_usize(usize a, usize b) {
-  return (a > b) ? a : b;
-}
-usize min_usize(usize a, usize b) {
-  return (a < b) ? a : b;
-}
-
-f32 minf(f32 a, f32 b) {
-  return (a < b) ? a : b;
-}
-
-f32 maxf(f32 a, f32 b) {
-  return (a > b) ? a : b;
-}
-
-f32 minf3(f32 a, f32 b, f32 c) {
-  f32 min = a;
-  if (b < min)
-    min = b;
-  if (c < min)
-    min = c;
-  return min;
-}
-
-f32 maxf3(f32 a, f32 b, f32 c) {
-  f32 max = a;
-  if (b > max)
-    max = b;
-  if (c > max)
-    max = c;
-  return max;
-}
-
 usize cam_to_pixel_x(const Renderer *renderer, f32 x) {
   return (usize)((x - renderer->cam.min_x) / renderer->x_ratio);
 }
@@ -213,11 +214,11 @@ void renderer_clear_frame(Renderer *renderer) {
   }
 }
 
-__attribute__((__always_inline__)) void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat3x3 m,
+__attribute__((__always_inline__)) void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m,
                                                       draw_pixel_callback_t draw_pixel_callback) {
-  Vec3 p0_ = mul3x3_3(m, p0);
-  Vec3 p1_ = mul3x3_3(m, p1);
-  Vec3 p2_ = mul3x3_3(m, p2);
+  Vec3 p0_ = vec4to3(mul4x4_4(m, vec3to4(p0)));
+  Vec3 p1_ = vec4to3(mul4x4_4(m, vec3to4(p1)));
+  Vec3 p2_ = vec4to3(mul4x4_4(m, vec3to4(p2)));
 
   // Project the triangle onto the camera plane.
   Vec3 p0_proj = project_point(renderer->cam, p0_);
@@ -276,7 +277,7 @@ __attribute__((__always_inline__)) void draw_pixel_callback_ascii(void *cx, usiz
   frame_buffer[i + 1] = c;
 }
 
-void draw_triangle_ascii(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat3x3 m) {
+void draw_triangle_ascii(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m) {
   draw_triangle(renderer, p0, p1, p2, m, draw_pixel_callback_ascii);
 }
 
@@ -286,7 +287,7 @@ __attribute__((__always_inline__)) void draw_pixel_callback_gui(void *cx, usize 
   frame_buffer[y * width + x] = light_level;
 }
 
-void draw_triangle_gui(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat3x3 m) {
+void draw_triangle_gui(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m) {
   draw_triangle(renderer, p0, p1, p2, m, draw_pixel_callback_gui);
 }
 
@@ -313,11 +314,12 @@ i32 main() {
 
   Renderer renderer = new_renderer(width, height, cam, light);
 
-  Mat3x3 m = mat3x3_id;
+  Mat4x4 m = mat4x4_id;
 
-  m = mul3x3(rotate3d_x(to_rad(20)), m);
+  m = mul4x4(translate3d((Vec3){0, 0, -1}), m);
+  m = mul4x4(mat3x3to4x4(rotate3d_x(to_rad(20))), m);
 
-  Mat3x3 rotate = rotate3d_z(to_rad(60.0f) / fps);
+  Mat4x4 rotate = mat3x3to4x4(rotate3d_z(to_rad(60.0f) / fps));
 
 #ifndef USE_RAYLIB
   usize frame_buffer_size = (width * 2 + 1) * height;
@@ -325,7 +327,7 @@ i32 main() {
   renderer.draw_pixel_callback_cx = frame_buffer;
 
   for (;;) {
-    m = mul3x3(rotate, m);
+    m = mul4x4(rotate, m);
     renderer_clear_frame(&renderer);
     memset(frame_buffer, ' ', frame_buffer_size);
     for (usize i = 0; i < ARR_LEN(teapot); i += 3) {
@@ -347,7 +349,7 @@ i32 main() {
   SetTraceLogLevel(LOG_ERROR);
   InitWindow((i32)width, (i32)height, "Render");
   while (!WindowShouldClose()) {
-    m = mul3x3(rotate, m);
+    m = mul4x4(rotate, m);
     renderer_clear_frame(&renderer);
     memset(frame_buffer, 0, width * height);
     for (usize i = 0; i < ARR_LEN(teapot); i += 3) {
