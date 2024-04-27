@@ -2,6 +2,8 @@
 .ccls-cache/
 bin/
 compile_commands.json
+yeb/
+a.out
 
 # Created by https://www.toptal.com/developers/gitignore/api/macos,linux,windows,vim,emacs,visualstudiocode
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos,linux,windows,vim,emacs,visualstudiocode

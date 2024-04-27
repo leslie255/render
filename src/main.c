@@ -361,7 +361,7 @@ i32 main() {
   m = mul4x4(translate3d((Vec3){0, 0, -0.7f}), m);
   m = mul4x4(mat3x3to4x4(rotate3d_x(to_rad(20))), m);
 
-  Mat4x4 rotate = mat3x3to4x4(rotate3d_z(to_rad(60.0f) / fps));
+  Mat4x4 rotate = mat3x3to4x4(rotate3d_z(to_rad(90.0f) / fps));
 
 #ifndef USE_RAYLIB
   usize frame_buffer_size = (width * 2 + 1) * height;
