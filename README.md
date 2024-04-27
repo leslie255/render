@@ -29,6 +29,15 @@ $ ./bin/ascii3d
 
 The GUI version currently only builds on macOS and Linux due to dependency managing, but the ASCII supports pretty much anything.
 
+You could also try using [yeb](https://github.com/leslie255/yeb) for building, which is a build system in C that bootstraps itself from a single header file:
+
+```
+$ cc build.c && ./a.out     # Bootstrap yeb (just the first time)
+$ ./yeb/yeb --release       # for ASCII
+$ ./yeb/yeb --release --gui # for GUI
+$ ./bin/render
+```
+
 ## LICENSE
 
 This repo is licensed under GPLv3
