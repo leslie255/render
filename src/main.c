@@ -36,10 +36,10 @@ Vec3 project_point(Camera cam, Vec3 p) {
   return (Vec3){p.get[1], p.get[2], cam.pos.get[0] - p.get[0]};
 }
 
-usize max_usize(usize a, usize b) {
+usize maxzu(usize a, usize b) {
   return (a > b) ? a : b;
 }
-usize min_usize(usize a, usize b) {
+usize minzu(usize a, usize b) {
   return (a < b) ? a : b;
 }
 
@@ -240,10 +240,10 @@ always_inline void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, 
   f32 max_y_cam = minf(maxf3(p0_proj.get[1], p1_proj.get[1], p2_proj.get[1]), cam.max_y);
   // Pixel coords.
   // Adds some extra pixels to the frame to compensate for floating point inaccuracies.
-  usize min_x = max_usize(cam_to_pixel_x(renderer, min_x_cam) - 1, 0);
-  usize max_x = min_usize(cam_to_pixel_x(renderer, max_x_cam) + 1, renderer->width);
-  usize min_y = max_usize(cam_to_pixel_y(renderer, max_y_cam) - 1, 0);
-  usize max_y = min_usize(cam_to_pixel_y(renderer, min_y_cam) + 1, renderer->height);
+  usize min_x = maxzu(cam_to_pixel_x(renderer, min_x_cam) - 1, 0);
+  usize max_x = minzu(cam_to_pixel_x(renderer, max_x_cam) + 1, renderer->width);
+  usize min_y = maxzu(cam_to_pixel_y(renderer, max_y_cam) - 1, 0);
+  usize max_y = minzu(cam_to_pixel_y(renderer, min_y_cam) + 1, renderer->height);
 
   // The light level of this surface.
   u8 light_level = surface_light_level(renderer->light, triangle_normal(p0_, p1_, p2_), 20);
@@ -288,6 +288,7 @@ always_inline void draw_object_indexless(Renderer *renderer, const Vec3 *vertice
 
 char char_for_light_level(u8 light_level) {
   static const char grayscale[] = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'.";
+  // static const char grayscale[] = ".'`^\",:;Il!i<>~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
   usize i = (usize)light_level / (256 / sizeof(grayscale) - 1);
   if (i > sizeof(grayscale) - 2)
     i = sizeof(grayscale) - 2;

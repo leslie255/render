@@ -1,6 +1,6 @@
 # RENDER
 
-**A3D rendering from scratch in C**
+**3D rendering from scratch in C**
 
 https://github.com/leslie255/ascii3d/assets/105544303/d806f367-01a7-4df6-b836-3d72fa569800
 

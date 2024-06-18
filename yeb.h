@@ -54,7 +54,7 @@ void yeb_bootstrap();
     __auto_type DA__ = (DA);                                                   \
     typeof((DA__)->da_items[0]) items[] = {__VA_ARGS__};                       \
     da_append(DA__, items, sizeof(items) / sizeof(items[0]));                  \
-  } while (0);
+  } while (0)
 
 #define da_reserve(DA, N)                                                      \
   do {                                                                         \
@@ -201,15 +201,84 @@ typedef struct cmd {
 
 void execute(Cmd cmd);
 
-typedef uint8_t LogLevel;
+/// Null means absent of value.
+typedef union MaybeDynString {
+  DynString ds;
+} MaybeDynString;
 
-#define LOG_LEVEL_INFO 0
-#define LOG_LEVEL_WARNING 1
-#define LOG_LEVEL_ERROR 2
+/// djb2 hash.
+uint64_t hash(const uint8_t *bytes, size_t size) {
+  uint64_t hash = 5381;
+  uint8_t c;
 
-#ifndef LOG_LEVEL
-#define LOG_LEVEL LOGLEVEL_INFO
-#endif
+  while ((c = *bytes++))
+    hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+
+  return hash;
+}
+
+/// NOT SECURE hash map from string to maybe string.
+/// Owns the strings.
+/// The map uses a very simple hashing algorithm which is very easily reversable.
+typedef struct Options {
+  struct OptionsKV {
+    DynString k;
+    MaybeDynString v;
+  } **map;
+} Options;
+
+struct OptionsKV parse_arg(const char *arg) {
+  for (size_t i = 0;; ++i) {
+    char c = arg[i];
+    if (c == '\0') {
+      DynString k = dynstring_new();
+      dynstring_append(&k, arg, i);
+      return (struct OptionsKV){k, {0}};
+    } else if (c == '=') {
+      DynString k = dynstring_new();
+      dynstring_append(&k, arg, i);
+      size_t j = i + 1;
+      while (arg[j] != '\0')
+        ++j;
+      DynString v = dynstring_new();
+      if (j != i)
+        dynstring_append(&v, &arg[i + 1], j - 1 - i);
+      return (struct OptionsKV){k, {v}};
+    }
+  }
+  __builtin_unreachable();
+}
+
+Options parse_argv(int argc, char **argv) {
+  const size_t map_size = 65536;
+  struct OptionsKV **map = malloc(map_size * sizeof(struct OptionsKV *));
+  assert(map != NULL);
+  memset(map, 0, map_size);
+  for (int i = 0; i < argc; ++i) {
+    const char *arg = argv[i];
+    struct OptionsKV kv = parse_arg(arg);
+    size_t idx = hash((uint8_t *)kv.k.cstr, kv.k.len) % 65536;
+    struct OptionsKV *kv_ = malloc(sizeof(kv));
+    assert(kv_ != NULL);
+    memcpy(kv_, &kv, sizeof(kv));
+    map[idx] = kv_;
+  }
+  return (Options){map};
+}
+
+typedef struct OptionFlag {
+  bool exists;
+  const MaybeDynString *value;
+} OptionFlag;
+
+OptionFlag opts_get(Options o, const char *key) {
+  size_t idx = hash((uint8_t *)key, strlen(key)) % 65536;
+  struct OptionsKV *kv = o.map[idx];
+  if (kv == NULL)
+    return (OptionFlag){.exists = false, 0};
+  else
+    return (OptionFlag){.exists = true, &kv->v};
+}
 
 #ifndef YEB_NO_IMPL
 
@@ -235,7 +304,7 @@ void execute(Cmd cmd) {
   printf("$ %s\n", s);
   int exit_code = system(s);
   if (exit_code != 0) {
-    printf("YEB: command finished with non-zero exit code (%d)\n", exit_code);
+    printf("YEB: command finished with non-zero exit code\n");
     exit(exit_code);
   }
 }
@@ -288,8 +357,7 @@ void yeb_bootstrap() {
   exit_code = system(S);                                                       \
   if (exit_code != 0)                                                          \
     if (exit_code != 0) {                                                      \
-      printf("command `%s` exited with non-zero exit code (%d)\n", S,          \
-             exit_code);                                                       \
+      printf("command `%s` exited with non-zero exit code\n", S);              \
       exit(1);                                                                 \
     }
 
