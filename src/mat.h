@@ -1,7 +1,6 @@
 #pragma once
 
 #include "common.h"
-#include "debug_utils.h"
 
 typedef struct mat3x3 {
   f32 get[3][3];
@@ -40,7 +39,7 @@ static inline Vec4 sub4(Vec4 x, Vec4 y);
 static inline Mat4x4 add4x4(Mat4x4 x, Mat4x4 y);
 static inline Mat4x4 sub4x4(Mat4x4 x, Mat4x4 y);
 
-/// Identity 3x3 matrix.
+/// Identity 4x4 matrix.
 const Mat4x4 mat4x4_id = {{
     {1, 0, 0, 0},
     {0, 1, 0, 0},

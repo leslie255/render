@@ -1,9 +1,6 @@
 #include "teapot.h"
 #include "common.h"
-#include "debug_utils.h"
 #include "mat.h"
-
-#define always_inline __attribute__((__always_inline__))
 
 #ifdef USE_RAYLIB
 #include <sys/time.h>
@@ -15,6 +12,42 @@
 #else
 #include "unistd.h"
 #endif
+
+static inline usize maxzu(usize a, usize b) {
+  return (a > b) ? a : b;
+}
+
+static inline usize minzu(usize a, usize b) {
+  return (a < b) ? a : b;
+}
+
+static inline f32 minf(f32 a, f32 b) {
+  return (a < b) ? a : b;
+}
+
+static inline f32 maxf(f32 a, f32 b) {
+  return (a > b) ? a : b;
+}
+
+/// Min value between 3 floats.
+static inline f32 minf_x3(f32 a, f32 b, f32 c) {
+  f32 min = a;
+  if (b < min)
+    min = b;
+  if (c < min)
+    min = c;
+  return min;
+}
+
+/// Max value between 3 floats.
+static inline f32 maxf_x3(f32 a, f32 b, f32 c) {
+  f32 max = a;
+  if (b > max)
+    max = b;
+  if (c > max)
+    max = c;
+  return max;
+}
 
 /// For now camera always look in negative X direction.
 /// But we still need an x value (could be any finite value) in the position vector for calculating the depth buffer.
@@ -29,51 +62,9 @@ typedef struct camera {
 /// Because raylib also has a `Camera` typedef.
 #define Camera Camera_
 
-/// Project a point to the camera.
-/// Returns a Vec3, in which the x and y values are the on-screen position, z is
-/// the depth.
+/// Maps a point from world coord to camera coord.
 Vec3 project_point(Camera cam, Vec3 p) {
   return (Vec3){p.get[1], p.get[2], cam.pos.get[0] - p.get[0]};
-}
-
-usize maxzu(usize a, usize b) {
-  return (a > b) ? a : b;
-}
-
-usize minzu(usize a, usize b) {
-  return (a < b) ? a : b;
-}
-
-f32 minf(f32 a, f32 b) {
-  return (a < b) ? a : b;
-}
-
-f32 maxf(f32 a, f32 b) {
-  return (a > b) ? a : b;
-}
-
-/// Min value between 3 floats.
-f32 minf_x3(f32 a, f32 b, f32 c) {
-  f32 min = a;
-  if (b < min)
-    min = b;
-  if (c < min)
-    min = c;
-  return min;
-}
-
-/// Max value between 3 floats.
-f32 maxf_x3(f32 a, f32 b, f32 c) {
-  f32 max = a;
-  if (b > max)
-    max = b;
-  if (c > max)
-    max = c;
-  return max;
-}
-
-f32 absf(f32 x) {
-  return (x >= 0 ? x : -x);
 }
 
 /// Helper function used in `is_in_triangle`.
@@ -194,22 +185,23 @@ void free_renderer(Renderer renderer) {
 }
 
 typedef void(draw_pixel_callback_t)(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level);
+typedef void(draw_triangle_callback_t)(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m);
 
-usize cam_to_pixel_x(const Renderer *renderer, f32 x) {
+usize cam_to_screen_x(const Renderer *renderer, f32 x) {
   return (usize)((x - renderer->cam.min_x) / renderer->x_ratio);
 }
 
 /// Note that ordering of y is reversed!
-usize cam_to_pixel_y(const Renderer *renderer, f32 y) {
+usize cam_to_screen_y(const Renderer *renderer, f32 y) {
   f32 dy = renderer->cam.max_y - renderer->cam.min_y;
   return (usize)((dy - (y - renderer->cam.min_y)) / renderer->y_ratio);
 }
 
-f32 pixel_to_cam_x(const Renderer *renderer, usize x) {
+f32 screen_to_cam_x(const Renderer *renderer, usize x) {
   return (f32)x * renderer->x_ratio + renderer->cam.min_x;
 }
 
-f32 pixel_to_cam_y(const Renderer *renderer, usize y) {
+f32 screen_to_cam_y(const Renderer *renderer, usize y) {
   f32 dy = renderer->cam.max_y - renderer->cam.min_y;
   return dy - (f32)y * renderer->y_ratio + renderer->cam.min_y;
 }
@@ -243,10 +235,10 @@ void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m, draw
   f32 max_y_cam = minf(maxf_x3(p0_proj.get[1], p1_proj.get[1], p2_proj.get[1]), cam.max_y);
   // Pixel coords.
   // Adds some extra pixels to the frame to compensate for floating point inaccuracies.
-  usize min_x = maxzu(cam_to_pixel_x(renderer, min_x_cam) - 1, 0);
-  usize max_x = minzu(cam_to_pixel_x(renderer, max_x_cam) + 1, renderer->width);
-  usize min_y = maxzu(cam_to_pixel_y(renderer, max_y_cam) - 1, 0);
-  usize max_y = minzu(cam_to_pixel_y(renderer, min_y_cam) + 1, renderer->height);
+  usize min_x = maxzu(cam_to_screen_x(renderer, min_x_cam) - 1, 0);
+  usize max_x = minzu(cam_to_screen_x(renderer, max_x_cam) + 1, renderer->width);
+  usize min_y = maxzu(cam_to_screen_y(renderer, max_y_cam) - 1, 0);
+  usize max_y = minzu(cam_to_screen_y(renderer, min_y_cam) + 1, renderer->height);
 
   // The light level of this surface.
   u8 light_level = surface_light_level(renderer->light, triangle_normal(p0_, p1_, p2_), 20);
@@ -254,8 +246,8 @@ void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m, draw
   // Sample and draw the pixels.
   for (usize y = min_y; y < max_y; ++y) {
     for (usize x = min_x; x < max_x; ++x) {
-      f32 cam_x = pixel_to_cam_x(renderer, x);
-      f32 cam_y = pixel_to_cam_y(renderer, y);
+      f32 cam_x = screen_to_cam_x(renderer, x);
+      f32 cam_y = screen_to_cam_y(renderer, y);
       f32 depth = triangular_interpolate_z(p0_proj, p1_proj, p2_proj, cam_x, cam_y);
       f32 *prev_depth = &renderer->depth_buffer[y * renderer->width + x];
       if (depth < *prev_depth) {
@@ -269,30 +261,30 @@ void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m, draw
   }
 }
 
-__attribute__((flatten)) void draw_object(Renderer *renderer,
-                                          const Vec3 *vertices,
-                                          const usize *indices,
-                                          usize indices_len,
-                                          Mat4x4 m,
-                                          draw_pixel_callback_t draw_pixel_callback) {
+void draw_object(Renderer *renderer,
+                 const Vec3 *vertices,
+                 const usize *indices,
+                 usize indices_len,
+                 Mat4x4 m,
+                 draw_triangle_callback_t draw_triangle) {
   for (usize i = 0; i < indices_len; i += 3) {
     Vec3 p0 = vertices[indices[i + 0]];
     Vec3 p1 = vertices[indices[i + 1]];
     Vec3 p2 = vertices[indices[i + 2]];
-    draw_triangle(renderer, p0, p1, p2, m, draw_pixel_callback);
+    draw_triangle(renderer, p0, p1, p2, m);
   }
 }
 
-__attribute__((flatten)) void draw_object_indexless(Renderer *renderer,
-                                                    const Vec3 *vertices,
-                                                    usize vertices_len,
-                                                    Mat4x4 m,
-                                                    draw_pixel_callback_t draw_pixel_callback) {
+void draw_object_indexless(Renderer *renderer,
+                           const Vec3 *vertices,
+                           usize vertices_len,
+                           Mat4x4 m,
+                           draw_triangle_callback_t draw_triangle) {
   for (usize i = 0; i < vertices_len; i += 3) {
     Vec3 p0 = vertices[i + 0];
     Vec3 p1 = vertices[i + 1];
     Vec3 p2 = vertices[i + 2];
-    draw_triangle(renderer, p0, p1, p2, m, draw_pixel_callback);
+    draw_triangle(renderer, p0, p1, p2, m);
   }
 }
 
@@ -302,11 +294,11 @@ __attribute__((flatten)) void draw_object_indexless(Renderer *renderer,
   }                                                                                                                    \
   __attribute__((flatten)) void draw_object##AFFIX(                                                                    \
       Renderer *renderer, const Vec3 *vertices, const usize *indices, usize indices_len, Mat4x4 m) {                   \
-    draw_object(renderer, vertices, indices, indices_len, m, DRAW_PIXEL_CALLBACK);                                     \
+    draw_object(renderer, vertices, indices, indices_len, m, draw_triangle##AFFIX);                                    \
   }                                                                                                                    \
   __attribute__((flatten)) void draw_object_indexless##AFFIX(                                                          \
       Renderer *renderer, const Vec3 *vertices, usize vertices_len, Mat4x4 m) {                                        \
-    draw_object_indexless(renderer, vertices, vertices_len, m, DRAW_PIXEL_CALLBACK);                                   \
+    draw_object_indexless(renderer, vertices, vertices_len, m, draw_triangle##AFFIX);                                  \
   }
 
 void draw_pixel_callback_gui(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level) {
@@ -318,14 +310,13 @@ DEF_DRAW_FUNCTIONS(_gui, draw_pixel_callback_gui);
 
 char char_for_light_level(u8 light_level) {
   static const char grayscale[] = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'.";
-  // static const char grayscale[] = ".'`^\",:;Il!i<>~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
   usize i = (usize)light_level / (256 / sizeof(grayscale) - 1);
   if (i > sizeof(grayscale) - 2)
     i = sizeof(grayscale) - 2;
   return grayscale[i];
 }
 
-void draw_pixel_callback_ascii(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level) {
+void draw_pixel_callback_tui(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level) {
   char *frame_buffer = cx;
   char c = char_for_light_level(light_level);
   usize i = (y * (width * 2 + 1)) + x * 2;
@@ -333,8 +324,9 @@ void draw_pixel_callback_ascii(void *cx, usize width, usize height, usize x, usi
   frame_buffer[i + 1] = c;
 }
 
-DEF_DRAW_FUNCTIONS(_ascii, draw_pixel_callback_ascii);
+DEF_DRAW_FUNCTIONS(_tui, draw_pixel_callback_tui);
 
+[[maybe_unused]]
 static const Vec3 cube_vertices[] = {
     // clang-format off
     {-5.0f, -5.0f, -5.0f},
@@ -348,6 +340,7 @@ static const Vec3 cube_vertices[] = {
     // clang-format on
 };
 
+[[maybe_unused]]
 static const usize cube_indices[] = {
     0, 3, 2, //
     2, 1, 0, //
@@ -367,10 +360,10 @@ i32 main() {
   Vec3 light = {-10, 5, -1};
   Camera cam = {
       .pos = {100, 0, 0},
-      .min_x = -9.0f,
-      .min_y = -9.0f,
-      .max_x = +9.0f,
-      .max_y = +9.0f,
+      .min_x = -2.0f,
+      .min_y = -2.0f,
+      .max_x = +2.0f,
+      .max_y = +2.0f,
   };
 
 #ifdef USE_RAYLIB
@@ -379,9 +372,11 @@ i32 main() {
   const usize height = 800;
 #else
   const f32 fps = 24;
-  const usize width = 80;
-  const usize height = 80;
+  const usize width = 100;
+  const usize height = 100;
 #endif
+
+  const useconds_t sleep_duration = (useconds_t)(1e6 / fps);
 
   Renderer renderer = new_renderer(width, height, cam, light);
 
@@ -401,13 +396,13 @@ i32 main() {
     m = mul4x4(rotate, m);
     renderer_clear_frame(&renderer);
     memset(frame_buffer, ' ', frame_buffer_size);
-    draw_object_indexless_ascii(&renderer, teapot, ARR_LEN(teapot), m);
+    draw_object_indexless_tui(&renderer, teapot, ARR_LEN(teapot), m);
     for (usize y = 0; y < height; ++y) {
       frame_buffer[(y * (width * 2 + 1)) + width * 2] = '\n';
     }
-    fwrite(frame_buffer, frame_buffer_size, 1, stdout);
+    fwrite(frame_buffer, 1, frame_buffer_size, stdout);
     fflush(stdout);
-    usleep((useconds_t)(1e6 / fps));
+    usleep(sleep_duration);
   }
 #else
   u8 *frame_buffer = xalloc(u8, width * height);
@@ -429,7 +424,7 @@ i32 main() {
     BeginDrawing();
     DrawTexture(texture, 0, 0, WHITE);
     EndDrawing();
-    usleep((useconds_t)(1e6 / fps));
+    usleep(sleep_duration);
   }
 #endif
 
