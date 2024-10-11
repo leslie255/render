@@ -76,18 +76,19 @@ f32 absf(f32 x) {
   return (x >= 0 ? x : -x);
 }
 
-f32 area(f32 x1, f32 y1, f32 x2, f32 y2, f32 x3, f32 y3) {
-  return absf(x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2)) / 2.0f;
+/// Helper function used in `is_in_triangle`.
+f32 sign(f32 x, f32 y, Vec3 p1, Vec3 p2) {
+  return (x - p2.get[0]) * (p1.get[1] - p2.get[1]) - (p1.get[0] - p2.get[0]) * (y - p2.get[1]);
 }
 
 /// The Z of p0, p1, p2 is ignored.
 bool is_in_triangle(Vec3 p0, Vec3 p1, Vec3 p2, f32 x, f32 y) {
-  f32 area0 = area(p0.get[0], p0.get[1], p1.get[0], p1.get[1], p2.get[0], p2.get[1]);
-  f32 area1 = area(x, y, p1.get[0], p1.get[1], p2.get[0], p2.get[1]);
-  f32 area2 = area(p0.get[0], p0.get[1], x, y, p2.get[0], p2.get[1]);
-  f32 area3 = area(p0.get[0], p0.get[1], p1.get[0], p1.get[1], x, y);
-  f32 d = area0 - (area1 + area2 + area3);
-  return absf(d) < 1e-3;
+  f32 d0 = sign(x, y, p0, p1);
+  f32 d1 = sign(x, y, p1, p2);
+  f32 d2 = sign(x, y, p2, p0);
+  bool has_neg = (d0 < 0) || (d1 < 0) || (d2 < 0);
+  bool has_pos = (d0 > 0) || (d1 > 0) || (d2 > 0);
+  return !(has_neg && has_pos);
 }
 
 /// From a projected triangle (calculated by `project_point`), calculate depth
