@@ -184,9 +184,6 @@ void free_renderer(Renderer renderer) {
   xfree(renderer.projs_buffer);
 }
 
-typedef void(draw_pixel_callback_t)(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level);
-typedef void(draw_triangle_callback_t)(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m);
-
 usize cam_to_screen_x(const Renderer *renderer, f32 x) {
   return (usize)((x - renderer->cam.min_x) / renderer->x_ratio);
 }
@@ -216,6 +213,10 @@ Vec3 transform(Mat4x4 m, Vec3 v) {
   return vec4to3(mul4x4_4(m, vec3to4(v)));
 }
 
+typedef void(draw_pixel_callback_t)(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level);
+
+/// Generally you wouldn't want to call this function yourself, instead define a `draw_pixel_callback` function, and do
+/// `DEF_DRAW_FUNCTIONS(_affix, my_draw_pixel_callback`. See `DEF_DRAW_FUNCTIONS` for more information.
 void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m, draw_pixel_callback_t draw_pixel_callback) {
   Vec3 p0_ = transform(m, p0);
   Vec3 p1_ = transform(m, p1);
@@ -261,6 +262,10 @@ void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m, draw
   }
 }
 
+typedef void(draw_triangle_callback_t)(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m);
+
+/// Generally you wouldn't want to call this function yourself, instead define a `draw_pixel_callback` function, and do
+/// `DEF_DRAW_FUNCTIONS(_affix, my_draw_pixel_callback`. See `DEF_DRAW_FUNCTIONS` for more information.
 void draw_object(Renderer *renderer,
                  const Vec3 *vertices,
                  const usize *indices,
@@ -275,6 +280,8 @@ void draw_object(Renderer *renderer,
   }
 }
 
+/// Generally you wouldn't want to call this function yourself, instead define a `draw_pixel_callback` function, and do
+/// `DEF_DRAW_FUNCTIONS(_affix, my_draw_pixel_callback`. See `DEF_DRAW_FUNCTIONS` for more information.
 void draw_object_indexless(Renderer *renderer,
                            const Vec3 *vertices,
                            usize vertices_len,
@@ -288,17 +295,34 @@ void draw_object_indexless(Renderer *renderer,
   }
 }
 
-#define DEF_DRAW_FUNCTIONS(AFFIX, DRAW_PIXEL_CALLBACK)                                                                 \
-  __attribute__((flatten)) void draw_triangle##AFFIX(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m) {        \
+/// This macro defines `draw_triangle_xxx`, `draw_object_xxx`, `draw_object_indexless_xxx` function.
+/// These functions are monomorphosized versions of `draw_triangle`, `draw_object`, `draw_object_indexless`, which are
+/// generic over a `draw_pixel_callback` function.
+/// On GCC and Clang, the monomorphosation process should have zero overhead.
+///
+/// Example:
+///
+/// ```
+/// void my_draw_pixel_callback(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level) {
+///   // ...
+/// }
+///
+/// DEF_DRAW_FUNCTIONS(my_, _function, my_draw_pixel_callback);
+/// ```
+///
+/// The above would define `my_draw_triangle_function`, `my_draw_object_function`, `my_draw_object_indexless_function`.
+#define DEF_DRAW_FUNCTIONS(PREFIX, AFFIX, DRAW_PIXEL_CALLBACK)                                                         \
+  __attribute__((flatten)) void PREFIX##draw_triangle##AFFIX(                                                          \
+      Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m) {                                                       \
     draw_triangle(renderer, p0, p1, p2, m, DRAW_PIXEL_CALLBACK);                                                       \
   }                                                                                                                    \
-  __attribute__((flatten)) void draw_object##AFFIX(                                                                    \
+  __attribute__((flatten)) void PREFIX##draw_object##AFFIX(                                                            \
       Renderer *renderer, const Vec3 *vertices, const usize *indices, usize indices_len, Mat4x4 m) {                   \
-    draw_object(renderer, vertices, indices, indices_len, m, draw_triangle##AFFIX);                                    \
+    draw_object(renderer, vertices, indices, indices_len, m, PREFIX##draw_triangle##AFFIX);                            \
   }                                                                                                                    \
-  __attribute__((flatten)) void draw_object_indexless##AFFIX(                                                          \
+  __attribute__((flatten)) void PREFIX##draw_object_indexless##AFFIX(                                                  \
       Renderer *renderer, const Vec3 *vertices, usize vertices_len, Mat4x4 m) {                                        \
-    draw_object_indexless(renderer, vertices, vertices_len, m, draw_triangle##AFFIX);                                  \
+    draw_object_indexless(renderer, vertices, vertices_len, m, PREFIX##draw_triangle##AFFIX);                          \
   }
 
 void draw_pixel_callback_gui(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level) {
@@ -306,7 +330,7 @@ void draw_pixel_callback_gui(void *cx, usize width, usize height, usize x, usize
   frame_buffer[y * width + x] = light_level;
 }
 
-DEF_DRAW_FUNCTIONS(_gui, draw_pixel_callback_gui);
+DEF_DRAW_FUNCTIONS(, _gui, draw_pixel_callback_gui);
 
 char char_for_light_level(u8 light_level) {
   static const char grayscale[] = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'.";
@@ -324,7 +348,7 @@ void draw_pixel_callback_tui(void *cx, usize width, usize height, usize x, usize
   frame_buffer[i + 1] = c;
 }
 
-DEF_DRAW_FUNCTIONS(_tui, draw_pixel_callback_tui);
+DEF_DRAW_FUNCTIONS(, _tui, draw_pixel_callback_tui);
 
 [[maybe_unused]]
 static const Vec3 cube_vertices[] = {
