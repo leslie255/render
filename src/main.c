@@ -216,7 +216,7 @@ Vec3 transform(Mat4x4 m, Vec3 v) {
 typedef void(draw_pixel_callback_t)(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level);
 
 /// Generally you wouldn't want to call this function yourself, instead define a `draw_pixel_callback` function, and do
-/// `DEF_DRAW_FUNCTIONS(_affix, my_draw_pixel_callback`. See `DEF_DRAW_FUNCTIONS` for more information.
+/// `DEF_DRAW_FUNCTIONS(prefix_, _affix, my_draw_pixel_callback`. See `DEF_DRAW_FUNCTIONS` for more information.
 void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m, draw_pixel_callback_t draw_pixel_callback) {
   Vec3 p0_ = transform(m, p0);
   Vec3 p1_ = transform(m, p1);
@@ -265,7 +265,7 @@ void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m, draw
 typedef void(draw_triangle_callback_t)(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m);
 
 /// Generally you wouldn't want to call this function yourself, instead define a `draw_pixel_callback` function, and do
-/// `DEF_DRAW_FUNCTIONS(_affix, my_draw_pixel_callback`. See `DEF_DRAW_FUNCTIONS` for more information.
+/// `DEF_DRAW_FUNCTIONS(prefix_, _affix, my_draw_pixel_callback`. See `DEF_DRAW_FUNCTIONS` for more information.
 void draw_object(Renderer *renderer,
                  const Vec3 *vertices,
                  const usize *indices,
@@ -281,7 +281,7 @@ void draw_object(Renderer *renderer,
 }
 
 /// Generally you wouldn't want to call this function yourself, instead define a `draw_pixel_callback` function, and do
-/// `DEF_DRAW_FUNCTIONS(_affix, my_draw_pixel_callback`. See `DEF_DRAW_FUNCTIONS` for more information.
+/// `DEF_DRAW_FUNCTIONS(prefix_, _affix, my_draw_pixel_callback`. See `DEF_DRAW_FUNCTIONS` for more information.
 void draw_object_indexless(Renderer *renderer,
                            const Vec3 *vertices,
                            usize vertices_len,
