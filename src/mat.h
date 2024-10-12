@@ -175,19 +175,19 @@ static inline f32 abs3(Vec3 v) {
 }
 
 static inline Vec3 add3(Vec3 x, Vec3 y) {
-  return (Vec3){
+  return (Vec3){{
       x.get[0] + y.get[0],
       x.get[1] + y.get[1],
       x.get[2] + y.get[2],
-  };
+  }};
 }
 
 static inline Vec3 sub3(Vec3 x, Vec3 y) {
-  return (Vec3){
+  return (Vec3){{
       x.get[0] - y.get[0],
       x.get[1] - y.get[1],
       x.get[2] - y.get[2],
-  };
+  }};
 }
 
 static inline Mat3x3 add3x3(Mat3x3 x, Mat3x3 y) {
@@ -211,21 +211,21 @@ static inline f32 abs4(Vec4 v) {
 }
 
 static inline Vec4 add4(Vec4 x, Vec4 y) {
-  return (Vec4){
+  return (Vec4){{
       x.get[0] + y.get[0],
       x.get[1] + y.get[1],
       x.get[2] + y.get[2],
       x.get[3] + y.get[3],
-  };
+  }};
 }
 
 static inline Vec4 sub4(Vec4 x, Vec4 y) {
-  return (Vec4){
+  return (Vec4){{
       x.get[0] - y.get[0],
       x.get[1] - y.get[1],
       x.get[2] - y.get[2],
       x.get[3] - y.get[3],
-  };
+  }};
 }
 
 static inline Mat4x4 add4x4(Mat4x4 x, Mat4x4 y) {
@@ -247,20 +247,20 @@ static inline Mat4x4 sub4x4(Mat4x4 x, Mat4x4 y) {
 }
 
 static inline Vec4 vec3to4(Vec3 v) {
-  return (Vec4){
+  return (Vec4){{
       v.get[0],
       v.get[1],
       v.get[2],
       1,
-  };
+  }};
 }
 
 static inline Vec3 vec4to3(Vec4 v) {
-  return (Vec3){
+  return (Vec3){{
       v.get[0],
       v.get[1],
       v.get[2],
-  };
+  }};
 }
 
 static inline Mat4x4 mat3x3to4x4(Mat3x3 m) {

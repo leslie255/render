@@ -1,4 +1,4 @@
-CC = clang
+CC ?= clang
 CFLAGS = -Wall -Wconversion --std=gnu2x
 DEBUG_FLAGS = -g -O1 -DDEBUG
 RELEASE_FLAGS = -O2

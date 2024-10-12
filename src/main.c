@@ -1,16 +1,28 @@
-#include "teapot.h"
+#include <time.h>
+
 #include "common.h"
 #include "mat.h"
+#include "teapot.h"
 
 #ifdef USE_RAYLIB
 #include <sys/time.h>
 #include <raylib.h>
 #endif
 
+/// Terminal is dark background.
+/// Comment if not.
+#define TERM_DARK_BG
+
 #if defined(_WIN32) || defined(WIN32)
 #include "windows.h"
-#else
+#elif defined(__APPLE__) || defined(__unix__)
 #include "unistd.h"
+#endif
+
+#if defined(__GNUC__) && !defined(__clang__)
+#define nonstring_char __attribute__((nonstring)) char
+#else
+#define nonstring_char char
 #endif
 
 static inline usize maxzu(usize a, usize b) {
@@ -59,12 +71,16 @@ typedef struct camera {
   f32 max_y;
 } Camera_;
 
-/// Because raylib also has a `Camera` typedef.
+#ifdef USE_RAYLIB
+typedef Camera RaylibCamera;
 #define Camera Camera_
+#else
+typedef Camera_ Camera;
+#endif
 
 /// Maps a point from world coord to camera coord.
 Vec3 project_point(Camera cam, Vec3 p) {
-  return (Vec3){p.get[1], p.get[2], cam.pos.get[0] - p.get[0]};
+  return (Vec3){{p.get[1], p.get[2], cam.pos.get[0] - p.get[0]}};
 }
 
 /// Helper function used in `is_in_triangle`.
@@ -158,11 +174,14 @@ typedef struct renderer {
   void *draw_pixel_callback_cx;
 } Renderer;
 
-Renderer new_renderer(usize width, usize height, Camera cam, Vec3 light) {
+/// If on platform where allocation is not possible, use this function and provide your own `depth_buffer`.
+/// `depth_buffer` must be an `f32` array of at least `width * height` values.
+Renderer
+new_renderer_with_depth_buffer(usize width, usize height, Camera cam, Vec3 light, f32 depth_buffer[width * height]) {
   ASSERT(cam.max_x > cam.min_x);
   ASSERT(cam.max_y > cam.min_y);
   return (Renderer){
-      .depth_buffer = xalloc(f32, width * height),
+      .depth_buffer = depth_buffer,
       .width = width,
       .height = height,
       .x_ratio = (cam.max_x - cam.min_x) / (f32)width,
@@ -170,6 +189,10 @@ Renderer new_renderer(usize width, usize height, Camera cam, Vec3 light) {
       .cam = cam,
       .light = light,
   };
+}
+
+Renderer new_renderer(usize width, usize height, Camera cam, Vec3 light) {
+  return new_renderer_with_depth_buffer(width, height, cam, light, xalloc(f32, width * height));
 }
 
 void check_object_indices(usize vertices_len, usize *indices, usize indices_len) {
@@ -332,20 +355,98 @@ void draw_pixel_callback_gui(void *cx, usize width, usize height, usize x, usize
 
 DEF_DRAW_FUNCTIONS(, _gui, draw_pixel_callback_gui);
 
+#ifdef TERM_DARK_BG
+static const char grayscale[] = ".'`^\",:;Il!i<>~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+#else
+static const char grayscale[] = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'.";
+#endif
+
 char char_for_light_level(u8 light_level) {
-  static const char grayscale[] = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'.";
+  if (light_level == 0)
+    return ' ';
   usize i = (usize)light_level / (256 / sizeof(grayscale) - 1);
   if (i > sizeof(grayscale) - 2)
     i = sizeof(grayscale) - 2;
   return grayscale[i];
 }
 
-void draw_pixel_callback_tui(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level) {
-  char *frame_buffer = cx;
-  char c = char_for_light_level(light_level);
-  usize i = (y * (width * 2 + 1)) + x * 2;
-  frame_buffer[i + 0] = c;
-  frame_buffer[i + 1] = c;
+typedef struct tui_drawing_cx {
+  /// GET-ONLY FIELD.
+  /// The width of the frame (ignoring anti-aliasing).
+  usize width;
+  /// GET-ONLY FIELD.
+  /// The height of the frame (ignoring anti-aliasing).
+  usize height;
+  /// GET-ONLY FIELD.
+  /// The anti-aliasing scale.
+  usize aa_scale;
+  /// GET-ONLY FIELD.
+  /// Size of the frame buffer in memory.
+  usize frame_buffer_size;
+  /// PRIVATE FIELD.
+  nonstring_char *frame_buffer;
+  /// PRIVATE FIELD.
+  usize light_level_buffer_size;
+  /// PRIVATE FIELD.
+  u8 *light_level_buffer;
+} TuiDrawingCx;
+
+TuiDrawingCx new_tui_drawing_context(usize width, usize height, usize aa_scale) {
+  usize light_level_buffer_size = width * height * aa_scale * aa_scale;
+  u8 *light_level_buffer = xalloc(u8, light_level_buffer_size);
+  usize frame_buffer_size = (width * 2 + 1) * height;
+  char *frame_buffer = xalloc(char, frame_buffer_size);
+  return (TuiDrawingCx){
+      .width = width,
+      .height = height,
+      .aa_scale = aa_scale,
+      .light_level_buffer_size = light_level_buffer_size,
+      .light_level_buffer = light_level_buffer,
+      .frame_buffer_size = frame_buffer_size,
+      .frame_buffer = frame_buffer,
+  };
+}
+
+void tui_start_frame(TuiDrawingCx *cx) {
+  memset(cx->frame_buffer, ' ', cx->frame_buffer_size);
+  memset(cx->light_level_buffer, 0, cx->light_level_buffer_size);
+}
+
+void draw_pixel_callback_tui(void *cx_, usize width, usize height, usize x, usize y, f32 depth, u8 light_level) {
+  TuiDrawingCx *cx = cx_;
+  cx->light_level_buffer[y * width + x] = (light_level == 0) ? 1 : light_level;
+}
+
+const char *tui_finish_frame(TuiDrawingCx *cx) {
+  // Insert newlines at the end of every line.
+  for (usize y = 0; y < cx->height; ++y) {
+    cx->frame_buffer[(y + 1) * (cx->width * 2 + 1) - 1] = '\n';
+  }
+
+  // Paint the pixels from pixel buffer to frame buffer.
+  for (usize y = 0; y < cx->height; ++y) {
+    for (usize x = 0; x < cx->width; ++x) {
+      u16 light_level = 0;
+      const usize subpixel_x_min = x * cx->aa_scale;
+      const usize subpixel_x_max = (x + 1) * cx->aa_scale;
+      const usize subpixel_y_min = y * cx->aa_scale;
+      const usize subpixel_y_max = (y + 1) * cx->aa_scale;
+      for (usize subpixel_x = subpixel_x_min; subpixel_x < subpixel_x_max; ++subpixel_x) {
+        for (usize subpixel_y = subpixel_y_min; subpixel_y < subpixel_y_max; ++subpixel_y) {
+          light_level += cx->light_level_buffer[subpixel_y * (cx->width * cx->aa_scale) + subpixel_x];
+        }
+      }
+      light_level /= cx->aa_scale * cx->aa_scale;
+      if (light_level >= 255)
+        light_level = 255;
+      char c = char_for_light_level((u8)light_level);
+      usize i = y * (cx->width * 2 + 1) + x * 2;
+      cx->frame_buffer[i + 0] = c;
+      cx->frame_buffer[i + 1] = c;
+    }
+  }
+
+  return cx->frame_buffer;
 }
 
 DEF_DRAW_FUNCTIONS(, _tui, draw_pixel_callback_tui);
@@ -353,14 +454,14 @@ DEF_DRAW_FUNCTIONS(, _tui, draw_pixel_callback_tui);
 [[maybe_unused]]
 static const Vec3 cube_vertices[] = {
     // clang-format off
-    {-5.0f, -5.0f, -5.0f},
-    { 5.0f, -5.0f, -5.0f},
-    { 5.0f,  5.0f, -5.0f},
-    {-5.0f,  5.0f, -5.0f},
-    {-5.0f, -5.0f,  5.0f},
-    { 5.0f, -5.0f,  5.0f},
-    { 5.0f,  5.0f,  5.0f},
-    {-5.0f,  5.0f,  5.0f},
+    {{-5.0f, -5.0f, -5.0f}},
+    {{ 5.0f, -5.0f, -5.0f}},
+    {{ 5.0f,  5.0f, -5.0f}},
+    {{-5.0f,  5.0f, -5.0f}},
+    {{-5.0f, -5.0f,  5.0f}},
+    {{ 5.0f, -5.0f,  5.0f}},
+    {{ 5.0f,  5.0f,  5.0f}},
+    {{-5.0f,  5.0f,  5.0f}},
     // clang-format on
 };
 
@@ -380,52 +481,70 @@ static const usize cube_indices[] = {
     7, 6, 2, //
 };
 
+u64 current_ms() {
+  struct timespec t;
+  clock_gettime(CLOCK_REALTIME, &t);
+  return (u64)(t.tv_sec) * 1000 + (u64)(t.tv_nsec / 1000000);
+}
+
+Mat4x4 rotation_for_current_time() {
+  u64 ms = current_ms();
+  const u64 full_rotation_period_ms = 3 * 1000;
+  // Convert current time to a fraction of the period
+  f32 fraction_of_period = (ms % full_rotation_period_ms) / (f32)full_rotation_period_ms;
+  // Convert fraction to radians (2 * PI radians in a full circle)
+  f32 rad = fraction_of_period * 2.0f * (f32)M_PI;
+  return mat3x3to4x4(rotate3d_z(rad));
+}
+
 i32 main() {
-  Vec3 light = {-10, 5, -1};
-  Camera cam = {
-      .pos = {100, 0, 0},
-      .min_x = -2.0f,
-      .min_y = -2.0f,
-      .max_x = +2.0f,
-      .max_y = +2.0f,
-  };
 
 #ifdef USE_RAYLIB
   const f32 fps = 60;
   const usize width = 800;
   const usize height = 800;
+  // !!! This value must be 1 for raylib rendering mode, as it does not support anti-aliasing.
+  const usize aa_scale = 1;
 #else
   const f32 fps = 24;
-  const usize width = 100;
-  const usize height = 100;
+  const usize width = 120;
+  const usize height = 120;
+  const usize aa_scale = 4;
 #endif
+
+  Vec3 light = {{-10, 5, -1}};
+  Camera cam = {
+      .pos = {{100, 0, 0}},
+      .min_x = -2.0f,
+      .min_y = -2.0f,
+      .max_x = +2.0f,
+      .max_y = +2.0f,
+  };
+  Renderer renderer = new_renderer(width * aa_scale, height * aa_scale, cam, light);
 
   const useconds_t sleep_duration = (useconds_t)(1e6 / fps);
 
-  Renderer renderer = new_renderer(width, height, cam, light);
-
-  Mat4x4 m = mat4x4_id;
-
-  m = mul4x4(translate3d((Vec3){0, 0, -0.7f}), m);
-  m = mul4x4(mat3x3to4x4(rotate3d_x(to_rad(20))), m);
-
-  Mat4x4 rotate = mat3x3to4x4(rotate3d_z(to_rad(90.0f) / fps));
+  Mat4x4 base_transform = mat4x4_id;
+  base_transform = mul4x4(translate3d((Vec3){{0, 0, -0.7f}}), base_transform);
+  base_transform = mul4x4(mat3x3to4x4(rotate3d_x(to_rad(20))), base_transform);
 
 #ifndef USE_RAYLIB
-  usize frame_buffer_size = (width * 2 + 1) * height;
-  char *frame_buffer = xalloc(char, frame_buffer_size);
-  renderer.draw_pixel_callback_cx = frame_buffer;
-
+  TuiDrawingCx tui_cx = new_tui_drawing_context(width, height, aa_scale);
+  renderer.draw_pixel_callback_cx = &tui_cx;
   for (;;) {
-    m = mul4x4(rotate, m);
+    // Initialize frame.
     renderer_clear_frame(&renderer);
-    memset(frame_buffer, ' ', frame_buffer_size);
-    draw_object_indexless_tui(&renderer, teapot, ARR_LEN(teapot), m);
-    for (usize y = 0; y < height; ++y) {
-      frame_buffer[(y * (width * 2 + 1)) + width * 2] = '\n';
-    }
-    fwrite(frame_buffer, 1, frame_buffer_size, stdout);
+    tui_start_frame(&tui_cx);
+
+    // Draw the thing.
+    Mat4x4 transform = mul4x4(rotation_for_current_time(), base_transform);
+    draw_object_indexless_tui(&renderer, teapot, ARR_LEN(teapot), transform);
+
+    // Finalize frame.
+    const nonstring_char *frame_buffer = tui_finish_frame(&tui_cx);
+    fwrite(frame_buffer, 1, tui_cx.frame_buffer_size, stdout);
     fflush(stdout);
+
     usleep(sleep_duration);
   }
 #else
@@ -434,10 +553,10 @@ i32 main() {
   SetTraceLogLevel(LOG_ERROR);
   InitWindow((i32)width, (i32)height, "Render");
   while (!WindowShouldClose()) {
-    m = mul4x4(rotate, m);
+    Mat4x4 transform = mul4x4(rotation_for_current_time(), base_transform);
     renderer_clear_frame(&renderer);
     memset(frame_buffer, 0, width * height);
-    draw_object_indexless_gui(&renderer, teapot, ARR_LEN(teapot), m);
+    draw_object_indexless_gui(&renderer, teapot, ARR_LEN(teapot), transform);
     Texture texture = LoadTextureFromImage((Image){
         .width = (i32)width,
         .height = (i32)height,
