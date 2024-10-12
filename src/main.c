@@ -78,6 +78,87 @@ typedef Camera RaylibCamera;
 typedef Camera_ Camera;
 #endif
 
+typedef struct frame {
+  usize width;
+  usize height;
+  f32 *depth_buffer;
+  /// Greyscale, 0 is black, 255 is white.
+  u8 *pixels;
+} Frame;
+
+/// SAFETY: Only use new_renderer to construct this.
+typedef struct renderer {
+  usize width;
+  usize height;
+  /// For converting between camera coords and pixel coords.
+  f32 x_ratio;
+  /// For converting between camera coords and pixel coords.
+  f32 y_ratio;
+  /// LEN: width * height.
+  f32 *depth_buffer;
+  Camera cam;
+  Vec3 light;
+  void *draw_pixel_callback_cx;
+} Renderer;
+
+/// If on platform where allocation is not possible, use this function and provide your own `depth_buffer`.
+/// `depth_buffer` must be an `f32` array of at least `width * height` values.
+Renderer
+new_renderer_with_depth_buffer(usize width, usize height, Camera cam, Vec3 light, f32 depth_buffer[width * height]) {
+  ASSERT(cam.max_x > cam.min_x);
+  ASSERT(cam.max_y > cam.min_y);
+  return (Renderer){
+      .depth_buffer = depth_buffer,
+      .width = width,
+      .height = height,
+      .x_ratio = (cam.max_x - cam.min_x) / (f32)width,
+      .y_ratio = (cam.max_y - cam.min_x) / (f32)height,
+      .cam = cam,
+      .light = light,
+  };
+}
+
+Renderer new_renderer(usize width, usize height, Camera cam, Vec3 light) {
+  return new_renderer_with_depth_buffer(width, height, cam, light, xalloc(f32, width * height));
+}
+
+void check_object_indices(usize vertices_len, usize *indices, usize indices_len) {
+  ASSERT(indices_len % 3 == 0);
+  for (usize i = 0; i < indices_len; ++i) {
+    usize index = indices[i];
+    ASSERT(index < vertices_len);
+  }
+}
+
+usize cam_to_screen_x(const Renderer *renderer, f32 x) {
+  return (usize)((x - renderer->cam.min_x) / renderer->x_ratio);
+}
+
+/// Note that ordering of y is reversed!
+usize cam_to_screen_y(const Renderer *renderer, f32 y) {
+  f32 dy = renderer->cam.max_y - renderer->cam.min_y;
+  return (usize)((dy - (y - renderer->cam.min_y)) / renderer->y_ratio);
+}
+
+f32 screen_to_cam_x(const Renderer *renderer, usize x) {
+  return (f32)x * renderer->x_ratio + renderer->cam.min_x;
+}
+
+f32 screen_to_cam_y(const Renderer *renderer, usize y) {
+  f32 dy = renderer->cam.max_y - renderer->cam.min_y;
+  return dy - (f32)y * renderer->y_ratio + renderer->cam.min_y;
+}
+
+void renderer_clear_frame(Renderer *renderer) {
+  for (usize i = 0; i < renderer->width * renderer->height; ++i) {
+    renderer->depth_buffer[i] = INFINITY;
+  }
+}
+
+Vec3 transform(Mat4x4 m, Vec3 v) {
+  return vec4to3(mul4x4_4(m, vec3to4(v)));
+}
+
 /// Maps a point from world coord to camera coord.
 Vec3 project_point(Camera cam, Vec3 p) {
   return (Vec3){{p.get[1], p.get[2], cam.pos.get[0] - p.get[0]}};
@@ -148,92 +229,6 @@ u8 surface_light_level(Vec3 light, Vec3 normal, u8 floor) {
   f32 floor_ = (f32)floor;
   u8 x = (u8)(light_level * (255 - floor_) / 255 + floor_);
   return x > floor ? x : floor;
-}
-
-typedef struct frame {
-  usize width;
-  usize height;
-  f32 *depth_buffer;
-  /// Greyscale, 0 is black, 255 is white.
-  u8 *pixels;
-} Frame;
-
-/// SAFETY: Only use new_renderer to construct this.
-typedef struct renderer {
-  Vec3 *projs_buffer;
-  usize width;
-  usize height;
-  /// For converting between camera coords and pixel coords.
-  f32 x_ratio;
-  /// For converting between camera coords and pixel coords.
-  f32 y_ratio;
-  /// LEN: width * height.
-  f32 *depth_buffer;
-  Camera cam;
-  Vec3 light;
-  void *draw_pixel_callback_cx;
-} Renderer;
-
-/// If on platform where allocation is not possible, use this function and provide your own `depth_buffer`.
-/// `depth_buffer` must be an `f32` array of at least `width * height` values.
-Renderer
-new_renderer_with_depth_buffer(usize width, usize height, Camera cam, Vec3 light, f32 depth_buffer[width * height]) {
-  ASSERT(cam.max_x > cam.min_x);
-  ASSERT(cam.max_y > cam.min_y);
-  return (Renderer){
-      .depth_buffer = depth_buffer,
-      .width = width,
-      .height = height,
-      .x_ratio = (cam.max_x - cam.min_x) / (f32)width,
-      .y_ratio = (cam.max_y - cam.min_x) / (f32)height,
-      .cam = cam,
-      .light = light,
-  };
-}
-
-Renderer new_renderer(usize width, usize height, Camera cam, Vec3 light) {
-  return new_renderer_with_depth_buffer(width, height, cam, light, xalloc(f32, width * height));
-}
-
-void check_object_indices(usize vertices_len, usize *indices, usize indices_len) {
-  ASSERT(indices_len % 3 == 0);
-  for (usize i = 0; i < indices_len; ++i) {
-    usize index = indices[i];
-    ASSERT(index < vertices_len);
-  }
-}
-
-void free_renderer(Renderer renderer) {
-  xfree(renderer.projs_buffer);
-}
-
-usize cam_to_screen_x(const Renderer *renderer, f32 x) {
-  return (usize)((x - renderer->cam.min_x) / renderer->x_ratio);
-}
-
-/// Note that ordering of y is reversed!
-usize cam_to_screen_y(const Renderer *renderer, f32 y) {
-  f32 dy = renderer->cam.max_y - renderer->cam.min_y;
-  return (usize)((dy - (y - renderer->cam.min_y)) / renderer->y_ratio);
-}
-
-f32 screen_to_cam_x(const Renderer *renderer, usize x) {
-  return (f32)x * renderer->x_ratio + renderer->cam.min_x;
-}
-
-f32 screen_to_cam_y(const Renderer *renderer, usize y) {
-  f32 dy = renderer->cam.max_y - renderer->cam.min_y;
-  return dy - (f32)y * renderer->y_ratio + renderer->cam.min_y;
-}
-
-void renderer_clear_frame(Renderer *renderer) {
-  for (usize i = 0; i < renderer->width * renderer->height; ++i) {
-    renderer->depth_buffer[i] = INFINITY;
-  }
-}
-
-Vec3 transform(Mat4x4 m, Vec3 v) {
-  return vec4to3(mul4x4_4(m, vec3to4(v)));
 }
 
 typedef void(draw_pixel_callback_t)(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level);
