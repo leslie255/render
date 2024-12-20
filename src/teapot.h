@@ -7,6 +7,9 @@
   perfect for glDrawArrays or similar.
 */
 
+// clang-format off
+
+[[maybe_unused]]
 static const Vec3 teapot[] = {
     {{0.700000f, 0.000000f, 1.200000f}},
     {{0.605600f, -0.355700f, 1.200000f}},
