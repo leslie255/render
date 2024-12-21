@@ -362,7 +362,19 @@ void draw_object_indexless(Renderer *renderer,
     draw_object_indexless(renderer, vertices, vertices_len, m, PREFIX##draw_triangle##AFFIX);                          \
   }
 
-u8 fragment_shader(usize width, usize height, usize x, usize y, u8 light_level, const f32 *depth_buffer) {
+typedef enum shader_kind {
+  SHADER_KIND_BORING,
+  SHADER_KIND_HIGHLIGHTED,
+  SHADER_KIND_DEBUG_DEPTH,
+  SHADER_KIND_DEBUG_DEPTH_HIGHLIGHTED,
+  SHADER_KIND_HIGHLIGHT_ONLY,
+} ShaderKind;
+
+u8 shader_boring(usize width, usize height, usize x, usize y, u8 light_level, const f32 *depth_buffer) {
+  return light_level;
+}
+
+u8 shader_highlighted(usize width, usize height, usize x, usize y, u8 light_level, const f32 *depth_buffer) {
   const u8 radius = 2;
   // Derivative with respect to x.
   f32 dx = 0;
@@ -382,8 +394,64 @@ u8 fragment_shader(usize width, usize height, usize x, usize y, u8 light_level, 
   return ((255 - light_level) < highlight) ? 255 : light_level + highlight;
 }
 
+u8 shader_debug_depth(usize width, usize height, usize x, usize y, u8 light_level, const f32 *depth_buffer) {
+  const f32 small = 1.0f;
+  f32 z = depth_buffer[y * height + x];
+  f32 z_norm = logf(small + sigmoidf(z - 10.f)) / logf(1.f + small);
+  return (u8)((1.f - z_norm) * 255.f);
+}
+
+u8 shader_debug_depth_highlighted(usize width,
+                                  usize height,
+                                  usize x,
+                                  usize y,
+                                  u8 light_level,
+                                  const f32 *depth_buffer) {
+  const f32 small = 1.0f;
+  f32 z = depth_buffer[y * height + x];
+  f32 z_norm = logf(small + sigmoidf(z - 10.f)) / logf(1.f + small);
+  light_level = (u8)((1.f - z_norm) * 255.f);
+  const u8 radius = 2;
+  // Derivative with respect to x.
+  f32 dx = 0;
+  for (u8 eps = 1; eps <= radius; ++eps)
+    dx += depth_buffer[y * width + (x - eps) % width];
+  for (u8 eps = 1; eps <= radius; ++eps)
+    dx -= depth_buffer[y * width + (x + eps) % width];
+  dx /= radius * radius;
+  f32 dy = 0;
+  for (u8 eps = 1; eps <= radius; ++eps)
+    dy += depth_buffer[(y - eps) % height * width + x];
+  for (u8 eps = 1; eps <= radius; ++eps)
+    dy -= depth_buffer[(y + eps) % height * width + x];
+  dy /= radius * radius;
+  f32 nabla_depth = sqrtf(dx * dx + dy * dy);
+  u8 highlight = (u8)(nabla_depth * 255.f);
+  return ((255 - light_level) < highlight) ? 255 : light_level + highlight;
+}
+
+u8 shader_highlight_only(usize width, usize height, usize x, usize y, u8 light_level, const f32 *depth_buffer) {
+  const u8 radius = 2;
+  // Derivative with respect to x.
+  f32 dx = 0;
+  for (u8 eps = 1; eps <= radius; ++eps)
+    dx += depth_buffer[y * width + (x - eps) % width];
+  for (u8 eps = 1; eps <= radius; ++eps)
+    dx -= depth_buffer[y * width + (x + eps) % width];
+  dx /= radius * radius;
+  f32 dy = 0;
+  for (u8 eps = 1; eps <= radius; ++eps)
+    dy += depth_buffer[(y - eps) % height * width + x];
+  for (u8 eps = 1; eps <= radius; ++eps)
+    dy -= depth_buffer[(y + eps) % height * width + x];
+  dy /= radius * radius;
+  f32 nabla_depth = sqrtf(dx * dx + dy * dy);
+  u8 highlight = (u8)(nabla_depth * 255.f);
+  return highlight;
+}
+
 typedef struct gui_drawing_cx {
-  bool is_depth_buffer_mode;
+  ShaderKind shader_kind;
   u8 *frame_buffer;
   usize width;
   usize height;
@@ -395,7 +463,7 @@ typedef struct gui_drawing_cx {
 GuiDrawingCx new_gui_drawing_cx(usize width, usize height, f32 target_fps) {
   u8 *frame_buffer = xalloc(u8, width * height);
   return (GuiDrawingCx){
-      .is_depth_buffer_mode = false,
+      .shader_kind = SHADER_KIND_BORING,
       .frame_buffer = frame_buffer,
       .width = width,
       .height = height,
@@ -408,8 +476,18 @@ void free_gui_drawing_cx(GuiDrawingCx cx) {
   xfree(cx.frame_buffer);
 }
 
-void gui_toggle_rendering_mode(GuiDrawingCx *cx) {
-  cx->is_depth_buffer_mode = !cx->is_depth_buffer_mode;
+void gui_cycle_shader(GuiDrawingCx *cx) {
+  if (cx->shader_kind == 4)
+    cx->shader_kind = 0;
+  else
+    cx->shader_kind += 1;
+}
+
+void gui_cycle_back_shader(GuiDrawingCx *cx) {
+  if (cx->shader_kind == 0)
+    cx->shader_kind = 4;
+  else
+    cx->shader_kind -= 1;
 }
 
 void gui_clear_frame(GuiDrawingCx *cx) {
@@ -430,7 +508,24 @@ void gui_finish_frame(GuiDrawingCx *cx, const Renderer *renderer) {
   for (usize y = 0; y < cx->width; ++y) {
     for (usize x = 0; x < cx->width; ++x) {
       u8 *light_level = &cx->frame_buffer[y * cx->width + x];
-      *light_level = fragment_shader(cx->width, cx->height, x, y, *light_level, renderer->depth_buffer);
+      switch (cx->shader_kind) {
+      case SHADER_KIND_BORING:
+        *light_level = shader_boring(cx->width, cx->height, x, y, *light_level, renderer->depth_buffer);
+        break;
+      case SHADER_KIND_HIGHLIGHTED:
+        *light_level = shader_highlighted(cx->width, cx->height, x, y, *light_level, renderer->depth_buffer);
+        break;
+      case SHADER_KIND_DEBUG_DEPTH:
+        *light_level = shader_debug_depth(cx->width, cx->height, x, y, *light_level, renderer->depth_buffer);
+        break;
+      case SHADER_KIND_DEBUG_DEPTH_HIGHLIGHTED:
+        *light_level =
+            shader_debug_depth_highlighted(cx->width, cx->height, x, y, *light_level, renderer->depth_buffer);
+        break;
+      case SHADER_KIND_HIGHLIGHT_ONLY:
+        *light_level = shader_highlight_only(cx->width, cx->height, x, y, *light_level, renderer->depth_buffer);
+        break;
+      }
     }
   }
 
@@ -444,9 +539,26 @@ void gui_finish_frame(GuiDrawingCx *cx, const Renderer *renderer) {
   Texture2D raylib_texture = LoadTextureFromImage(image);
   DrawTexture(raylib_texture, 0, 0, WHITE);
   gui_debug_println(cx, TextFormat("FPS: %.01f/%.0f", 1.f / GetFrameTime(), cx->target_fps));
-  const char *render_mode = (cx->is_depth_buffer_mode) ? "Depth buffer" : "Default";
-  gui_debug_println(cx, TextFormat("Render mode [F3 + D]: %s", render_mode));
-  gui_debug_println(cx, TextFormat("FOV [Ctrl + +/-/0]: %.1f", to_deg(renderer->cam.fov)));
+  const char *shader;
+  switch (cx->shader_kind) {
+  case SHADER_KIND_BORING:
+    shader = "BORING";
+    break;
+  case SHADER_KIND_HIGHLIGHTED:
+    shader = "HIGHLIGHTED";
+    break;
+  case SHADER_KIND_DEBUG_DEPTH:
+    shader = "DEBUG DEPTH";
+    break;
+  case SHADER_KIND_DEBUG_DEPTH_HIGHLIGHTED:
+    shader = "DEBUG DEPTH HIGHLIGHTED";
+    break;
+  case SHADER_KIND_HIGHLIGHT_ONLY:
+    shader = "HIGHLIGHT ONLY";
+    break;
+  }
+  gui_debug_println(cx, TextFormat("Shader: [R/Shift+R]: %s", shader));
+  gui_debug_println(cx, TextFormat("FOV [+/-/0]: %.1f", to_deg(renderer->cam.fov)));
   gui_debug_println(cx,
                     TextFormat("Camera XYZ: %.02f %.02f %.02f",
                                renderer->cam.pos.get[0],
@@ -461,31 +573,43 @@ void gui_setup_window(GuiDrawingCx *cx) {
   SetTargetFPS(cx->target_fps == INFINITY ? 2147483647 : (i32)cx->target_fps);
 }
 
+bool IsControlDown() {
+  return IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+}
+
+bool IsShiftDown() {
+  return IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+}
+
 void gui_handle_event(GuiDrawingCx *cx, Renderer *renderer) {
-  if (IsKeyDown(KEY_F3) && IsKeyPressed(KEY_D))
-    gui_toggle_rendering_mode(cx);
-  if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && (IsKeyDown(KEY_EQUAL) || IsKeyDown(KEY_KP_ADD)))
+  if (IsShiftDown() && IsKeyPressed(KEY_R)) {
+    gui_cycle_back_shader(cx);
+    return;
+  }
+  if (IsKeyPressed(KEY_R)) {
+    gui_cycle_shader(cx);
+    return;
+  }
+  if (IsKeyDown(KEY_EQUAL) || IsKeyDown(KEY_KP_ADD)) {
     renderer->cam.fov -= to_rad(1.f) / ((f32)GetFPS() / 60.f);
-  if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) &&
-      (IsKeyDown(KEY_MINUS) || IsKeyDown(KEY_KP_SUBTRACT)))
+  }
+  if (IsKeyDown(KEY_MINUS) || IsKeyDown(KEY_KP_SUBTRACT)) {
     renderer->cam.fov += to_rad(1.f) / ((f32)GetFPS() / 60.f);
-  if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && (IsKeyDown(KEY_ZERO) || IsKeyDown(KEY_KP_0)))
+  }
+  if (IsKeyDown(KEY_ZERO) || IsKeyDown(KEY_KP_0)) {
     renderer->cam.fov = to_rad(90.f);
-  if (IsKeyDown(KEY_W))
+  }
+  if (IsKeyDown(KEY_W)) {
     renderer->cam.pos.get[0] -= 0.1f / ((f32)GetFPS() / 60.f);
-  if (IsKeyDown(KEY_S))
+  }
+  if (IsKeyDown(KEY_S)) {
     renderer->cam.pos.get[0] += 0.1f / ((f32)GetFPS() / 60.f);
+  }
 }
 
 void draw_pixel_callback_gui(void *cx_, usize width, usize height, usize x, usize y, f32 z, u8 light_level) {
   GuiDrawingCx *cx = cx_;
-  if (!cx->is_depth_buffer_mode) {
-    cx->frame_buffer[y * width + x] = light_level;
-  } else {
-    const f32 small = 1.0f;
-    f32 z_norm = logf(small + sigmoidf(z - 10.f)) / logf(1.f + small);
-    cx->frame_buffer[y * width + x] = (u8)((1.f - z_norm) * 255.f);
-  }
+  cx->frame_buffer[y * width + x] = light_level;
 }
 
 DEF_DRAW_FUNCTIONS(, _gui, draw_pixel_callback_gui);
