@@ -2,9 +2,13 @@
 
 **3D rendering from scratch in C**
 
-https://github.com/leslie255/ascii3d/assets/105544303/d806f367-01a7-4df6-b836-3d72fa569800
+https://github.com/user-attachments/assets/635bb93e-0db8-46e5-9d4d-ad98294d2aaf
+
+Earlier versions:
 
 https://github.com/leslie255/render/assets/105544303/e12e372d-9f73-490e-a3a0-b7ba03988bac
+
+https://github.com/leslie255/ascii3d/assets/105544303/d806f367-01a7-4df6-b836-3d72fa569800
 
 ## Building
 
