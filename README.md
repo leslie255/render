@@ -6,17 +6,7 @@ https://github.com/leslie255/ascii3d/assets/105544303/d806f367-01a7-4df6-b836-3d
 
 https://github.com/leslie255/render/assets/105544303/e12e372d-9f73-490e-a3a0-b7ba03988bac
 
-Supports rendering in both terminal ASCII and GUI
-
 ## Building
-
-Render in terminal ASCII:
-
-```
-$ mkdir bin/
-$ make all MODE=release
-$ ./bin/ascii3d
-```
 
 Render in GUI window (using [raylib](https://github.com/raysan5/raylib) to draw the pixels into a window):
 
