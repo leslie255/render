@@ -1,31 +1,19 @@
 #include <time.h>
 
-#define USE_RAYLIB
-
 #include "common.h"
 #include "mat.h"
 #include "teapot.h"
 
-#ifdef USE_RAYLIB
 #include <sys/time.h>
 #include <raylib.h>
-#endif
 
 /// Terminal is dark background.
 /// Comment if not.
 #define TERM_DARK_BG
 
-#if defined(_WIN32) || defined(WIN32)
-#include "windows.h"
-#elif defined(__APPLE__) || defined(__unix__)
-#include "unistd.h"
-#endif
-
-#if defined(__GNUC__) && !defined(__clang__)
-#define nonstring_char __attribute__((nonstring)) char
-#else
-#define nonstring_char char
-#endif
+static inline f32 sigmoidf(f32 x) {
+  return 1.f / (1.f + expf(-x));
+}
 
 static inline usize maxzu(usize a, usize b) {
   return (a > b) ? a : b;
@@ -66,19 +54,24 @@ static inline f32 maxf_x3(f32 a, f32 b, f32 c) {
 /// For now camera always look in negative X direction.
 /// But we still need an x value (could be any finite value) in the position vector for calculating the depth buffer.
 typedef struct camera {
+  /// Position of the camera.
   Vec3 pos;
+  /// Min X of the near clipping plane.
   f32 min_x;
+  /// Min Y of the near clipping plane.
   f32 min_y;
+  /// Max X of the near clipping plane.
   f32 max_x;
+  /// Max Y of the near clipping plane.
   f32 max_y;
+  f32 fov;
+  f32 aspect_ratio;
+  f32 near_clipping_dist;
+  f32 far_clipping_dist;
 } Camera_;
 
-#ifdef USE_RAYLIB
 typedef Camera RaylibCamera;
 #define Camera Camera_
-#else
-typedef Camera_ Camera;
-#endif
 
 typedef struct frame {
   usize width;
@@ -161,9 +154,34 @@ Vec3 transform(Mat4x4 m, Vec3 v) {
   return vec4to3(mul4x4_4(m, vec3to4(v)));
 }
 
+/// Helper function used in `project_point`.
+static inline Mat4x4 view_matrix(Vec3 cam_pos) {
+  return (Mat4x4){{
+      {0, 1.f, 0, -cam_pos.get[1]},
+      {0, 0, 1.f, -cam_pos.get[2]},
+      {-1.f, 0, 0, cam_pos.get[0]},
+      {0, 0, 0, 1.f},
+  }};
+}
+
+/// Helper function used in `project_point`.
+static inline Mat4x4 projection_matrix(f32 fov, f32 aspect_ratio, f32 near_clipping, f32 far_clipping) {
+  return (Mat4x4){{
+      {1.f / (aspect_ratio * tanf(fov / 2.f)), 0, 0, 0},
+      {0, 1.f / (tanf(fov / 2.f)), 0, 0},
+      {0, 0, fov / (fov - near_clipping), (-near_clipping * fov) / (fov - near_clipping)},
+      {0, 0, -1.f, 0},
+  }};
+}
+
 /// Maps a point from world coord to camera coord.
-Vec3 project_point(Camera cam, Vec3 p) {
-  return (Vec3){{p.get[1], p.get[2], cam.pos.get[0] - p.get[0]}};
+Vec3 project_point(const Camera cam, Vec3 p) {
+  Mat4x4 view_mat = view_matrix(cam.pos);
+  Mat4x4 proj_mat = projection_matrix(cam.fov, cam.aspect_ratio, cam.near_clipping_dist, cam.far_clipping_dist);
+  Vec3 result = p;
+  result = transform(view_mat, result);
+  result = transform(proj_mat, result);
+  return result;
 }
 
 /// Helper function used in `is_in_triangle`.
@@ -233,7 +251,7 @@ u8 surface_light_level(Vec3 light, Vec3 normal, u8 floor) {
   return x > floor ? x : floor;
 }
 
-typedef void(draw_pixel_callback_t)(void *cx, usize width, usize height, usize x, usize y, f32 depth, u8 light_level);
+typedef void(draw_pixel_callback_t)(void *cx, usize width, usize height, usize x, usize y, f32 z, u8 light_level);
 
 /// Generally you wouldn't want to call this function yourself, instead define a `draw_pixel_callback` function, and do
 /// `DEF_DRAW_FUNCTIONS(prefix_, _affix, my_draw_pixel_callback`. See `DEF_DRAW_FUNCTIONS` for more information.
@@ -241,6 +259,9 @@ void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m, draw
   Vec3 p0_ = transform(m, p0);
   Vec3 p1_ = transform(m, p1);
   Vec3 p2_ = transform(m, p2);
+
+  // The light level of this surface.
+  u8 light_level = surface_light_level(renderer->light, triangle_normal(p0_, p1_, p2_), 20);
 
   // Project the triangle onto the camera plane.
   Vec3 p0_proj = project_point(renderer->cam, p0_);
@@ -261,9 +282,6 @@ void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m, draw
   usize min_y = maxzu(cam_to_screen_y(renderer, max_y_cam) - 1, 0);
   usize max_y = minzu(cam_to_screen_y(renderer, min_y_cam) + 1, renderer->height);
 
-  // The light level of this surface.
-  u8 light_level = surface_light_level(renderer->light, triangle_normal(p0_, p1_, p2_), 20);
-
   // Sample and draw the pixels.
   for (usize y = min_y; y < max_y; ++y) {
     for (usize x = min_x; x < max_x; ++x) {
@@ -273,7 +291,6 @@ void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m, draw
       f32 *prev_depth = &renderer->depth_buffer[y * renderer->width + x];
       if (depth < *prev_depth) {
         *prev_depth = depth;
-        // u8 light_level = (u8)(255 - (depth - 90) / 20 * 255);
         if (draw_pixel_callback != NULL)
           draw_pixel_callback(
               renderer->draw_pixel_callback_cx, renderer->width, renderer->height, x, y, depth, light_level);
@@ -345,19 +362,45 @@ void draw_object_indexless(Renderer *renderer,
     draw_object_indexless(renderer, vertices, vertices_len, m, PREFIX##draw_triangle##AFFIX);                          \
   }
 
+u8 fragment_shader(usize width, usize height, usize x, usize y, u8 light_level, const f32 *depth_buffer) {
+  const u8 radius = 2;
+  // Derivative with respect to x.
+  f32 dx = 0;
+  for (u8 eps = 1; eps <= radius; ++eps)
+    dx += depth_buffer[y * width + (x - eps) % width];
+  for (u8 eps = 1; eps <= radius; ++eps)
+    dx -= depth_buffer[y * width + (x + eps) % width];
+  dx /= radius * radius;
+  f32 dy = 0;
+  for (u8 eps = 1; eps <= radius; ++eps)
+    dy += depth_buffer[(y - eps) % height * width + x];
+  for (u8 eps = 1; eps <= radius; ++eps)
+    dy -= depth_buffer[(y + eps) % height * width + x];
+  dy /= radius * radius;
+  f32 nabla_depth = sqrtf(dx * dx + dy * dy);
+  u8 highlight = (u8)(nabla_depth * 255.f);
+  return ((255 - light_level) < highlight) ? 255 : light_level + highlight;
+}
+
 typedef struct gui_drawing_cx {
   bool is_depth_buffer_mode;
   u8 *frame_buffer;
   usize width;
   usize height;
+  f32 target_fps;
+  usize debug_line_count;
+  Texture2D raylib_texture;
 } GuiDrawingCx;
 
-GuiDrawingCx new_gui_drawing_cx(usize width, usize height) {
+GuiDrawingCx new_gui_drawing_cx(usize width, usize height, f32 target_fps) {
+  u8 *frame_buffer = xalloc(u8, width * height);
   return (GuiDrawingCx){
       .is_depth_buffer_mode = false,
-      .frame_buffer = xalloc(u8, width * height),
+      .frame_buffer = frame_buffer,
       .width = width,
       .height = height,
+      .debug_line_count = 0,
+      .target_fps = target_fps,
   };
 }
 
@@ -365,23 +408,83 @@ void free_gui_drawing_cx(GuiDrawingCx cx) {
   xfree(cx.frame_buffer);
 }
 
-void toggle_rendering_mode(GuiDrawingCx *cx) {
+void gui_toggle_rendering_mode(GuiDrawingCx *cx) {
   cx->is_depth_buffer_mode = !cx->is_depth_buffer_mode;
 }
 
-void gui_drawing_clear_frame(GuiDrawingCx *cx) {
+void gui_clear_frame(GuiDrawingCx *cx) {
   memset(cx->frame_buffer, 0, cx->width * cx->height);
+  cx->debug_line_count = 0;
+  BeginDrawing();
 }
 
-void draw_pixel_callback_gui(void *cx_, usize width, usize height, usize x, usize y, f32 depth, u8 light_level) {
+static inline void gui_debug_println(GuiDrawingCx *cx, const char *text) {
+  i32 y = (i32)cx->debug_line_count * 20 + 10;
+  ++cx->debug_line_count;
+  DrawText(text, 10, y, 20, WHITE);
+}
+
+/// Calls raylib to paint the frame buffer into the window.
+void gui_finish_frame(GuiDrawingCx *cx, const Renderer *renderer) {
+  // Run fragment shader;
+  for (usize y = 0; y < cx->width; ++y) {
+    for (usize x = 0; x < cx->width; ++x) {
+      u8 *light_level = &cx->frame_buffer[y * cx->width + x];
+      *light_level = fragment_shader(cx->width, cx->height, x, y, *light_level, renderer->depth_buffer);
+    }
+  }
+
+  Image image = (Image){
+      .width = (i32)cx->width,
+      .height = (i32)cx->height,
+      .data = cx->frame_buffer,
+      .format = PIXELFORMAT_UNCOMPRESSED_GRAYSCALE,
+      .mipmaps = 1,
+  };
+  Texture2D raylib_texture = LoadTextureFromImage(image);
+  DrawTexture(raylib_texture, 0, 0, WHITE);
+  gui_debug_println(cx, TextFormat("FPS: %.01f/%.0f", 1.f / GetFrameTime(), cx->target_fps));
+  const char *render_mode = (cx->is_depth_buffer_mode) ? "Depth buffer" : "Default";
+  gui_debug_println(cx, TextFormat("Render mode [F3 + D]: %s", render_mode));
+  gui_debug_println(cx, TextFormat("FOV [Ctrl + +/-/0]: %.1f", to_deg(renderer->cam.fov)));
+  gui_debug_println(cx,
+                    TextFormat("Camera XYZ: %.02f %.02f %.02f",
+                               renderer->cam.pos.get[0],
+                               renderer->cam.pos.get[1],
+                               renderer->cam.pos.get[2]));
+  EndDrawing();
+}
+
+void gui_setup_window(GuiDrawingCx *cx) {
+  SetTraceLogLevel(LOG_ERROR); // Silence raylib logging.
+  InitWindow((i32)cx->width, (i32)cx->height, "Render");
+  SetTargetFPS(cx->target_fps == INFINITY ? 2147483647 : (i32)cx->target_fps);
+}
+
+void gui_handle_event(GuiDrawingCx *cx, Renderer *renderer) {
+  if (IsKeyDown(KEY_F3) && IsKeyPressed(KEY_D))
+    gui_toggle_rendering_mode(cx);
+  if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && (IsKeyDown(KEY_EQUAL) || IsKeyDown(KEY_KP_ADD)))
+    renderer->cam.fov -= to_rad(1.f) / ((f32)GetFPS() / 60.f);
+  if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) &&
+      (IsKeyDown(KEY_MINUS) || IsKeyDown(KEY_KP_SUBTRACT)))
+    renderer->cam.fov += to_rad(1.f) / ((f32)GetFPS() / 60.f);
+  if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && (IsKeyDown(KEY_ZERO) || IsKeyDown(KEY_KP_0)))
+    renderer->cam.fov = to_rad(90.f);
+  if (IsKeyDown(KEY_W))
+    renderer->cam.pos.get[0] -= 0.1f / ((f32)GetFPS() / 60.f);
+  if (IsKeyDown(KEY_S))
+    renderer->cam.pos.get[0] += 0.1f / ((f32)GetFPS() / 60.f);
+}
+
+void draw_pixel_callback_gui(void *cx_, usize width, usize height, usize x, usize y, f32 z, u8 light_level) {
   GuiDrawingCx *cx = cx_;
   if (!cx->is_depth_buffer_mode) {
     cx->frame_buffer[y * width + x] = light_level;
   } else {
-    f32 color = (depth - 9) / 2.f * 255.f;
-    color = (color <= 255.f) ? color : 255.f;
-    color = (color >= 0.f) ? color : 0.f;
-    cx->frame_buffer[y * width + x] = (u8)(255 - color);
+    const f32 small = 1.0f;
+    f32 z_norm = logf(small + sigmoidf(z - 10.f)) / logf(1.f + small);
+    cx->frame_buffer[y * width + x] = (u8)((1.f - z_norm) * 255.f);
   }
 }
 
@@ -435,18 +538,9 @@ Mat4x4 rotation_for_current_time() {
 
 i32 main() {
 
-#ifdef USE_RAYLIB
-  const f32 fps = 120;
+  const f32 fps = INFINITY;
   const usize width = 800;
   const usize height = 800;
-  // !!! This value must be 1 for raylib rendering mode, as it does not support anti-aliasing.
-  const usize aa_scale = 1;
-#else
-  const f32 fps = 24;
-  const usize width = 120;
-  const usize height = 120;
-  const usize aa_scale = 4;
-#endif
 
   Vec3 light = {{-10, 5, -1}};
   Camera cam = {
@@ -455,41 +549,33 @@ i32 main() {
       .min_y = -2.0f,
       .max_x = +2.0f,
       .max_y = +2.0f,
+      .fov = to_rad(90.f),
+      .aspect_ratio = 1.f,
+      .near_clipping_dist = 0.1f,
+      .far_clipping_dist = 100.f,
   };
-  Renderer renderer = new_renderer(width * aa_scale, height * aa_scale, cam, light);
-
-  const useconds_t sleep_duration = (useconds_t)(1e6 / fps);
+  Renderer renderer = new_renderer(width, height, cam, light);
 
   Mat4x4 base_transform = mat4x4_id;
   base_transform = mul4x4(translate3d((Vec3){{0, 0, -0.7f}}), base_transform);
   base_transform = mul4x4(mat3x3to4x4(rotate3d_x(to_rad(20))), base_transform);
 
-  printf("Press R to switch between render modes");
-  GuiDrawingCx gui_drawing_cx = new_gui_drawing_cx(width, height);
+  GuiDrawingCx gui_drawing_cx = new_gui_drawing_cx(width, height, fps);
   renderer.draw_pixel_callback_cx = &gui_drawing_cx;
-  SetTraceLogLevel(LOG_ERROR);
-  InitWindow((i32)width, (i32)height, "Render");
+  gui_setup_window(&gui_drawing_cx);
+
   while (!WindowShouldClose()) {
-    if (IsKeyPressed(KEY_R))
-      toggle_rendering_mode(&gui_drawing_cx);
+    gui_handle_event(&gui_drawing_cx, &renderer);
 
-    Mat4x4 transform = mul4x4(rotation_for_current_time(), base_transform);
     renderer_clear_frame(&renderer);
-    gui_drawing_clear_frame(&gui_drawing_cx);
+    gui_clear_frame(&gui_drawing_cx);
+
+    // Render stuff.
+    Mat4x4 transform = mul4x4(rotation_for_current_time(), base_transform);
     draw_object_indexless_gui(&renderer, teapot, ARR_LEN(teapot), transform);
-    Texture texture = LoadTextureFromImage((Image){
-        .width = (i32)width,
-        .height = (i32)height,
-        .data = gui_drawing_cx.frame_buffer,
-        .format = PIXELFORMAT_UNCOMPRESSED_GRAYSCALE,
-        .mipmaps = 1,
-    });
 
-    BeginDrawing();
-    DrawTexture(texture, 0, 0, WHITE);
-    EndDrawing();
-
-    usleep(sleep_duration);
+    // Finish frame.
+    gui_finish_frame(&gui_drawing_cx, &renderer);
   }
 
   return 0;

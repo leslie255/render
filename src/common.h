@@ -42,13 +42,16 @@ static inline void print_stacktrace() {
   (((COND))                                                                                                            \
        ? 0                                                                                                             \
        : (fprintf(stderr, "[%s@%s:%d] Assertion failed: (%s) == false\n", __FUNCTION__, __FILE__, __LINE__, #COND),    \
-          print_stacktrace(), exit(1)))
+          print_stacktrace(),                                                                                          \
+          exit(1)))
 /// Assert with stacktrace and print message on failure.
 #define ASSERT_PRINTF(COND, ...)                                                                                       \
   (((COND))                                                                                                            \
        ? 0                                                                                                             \
        : (fprintf(stderr, "[%s@%s:%d] Assertion failed: (%s) == false\n", __FUNCTION__, __FILE__, __LINE__, #COND),    \
-          fprintf(stderr, __VA_ARGS__), print_stacktrace(), exit(1)))
+          fprintf(stderr, __VA_ARGS__),                                                                                \
+          print_stacktrace(),                                                                                          \
+          exit(1)))
 
 #ifdef DEBUG
 /// Assert only in debug mode with stacktrace on failure.
@@ -56,13 +59,16 @@ static inline void print_stacktrace() {
   (((COND))                                                                                                            \
        ? 0                                                                                                             \
        : (fprintf(stderr, "[%s@%s:%d] Assertion failed: (%s) == false\n", __FUNCTION__, __FILE__, __LINE__, #COND),    \
-          print_stacktrace(), exit(1)))
+          print_stacktrace(),                                                                                          \
+          exit(1)))
 /// Assert only in debug mode with stacktrace and print message on failure.
 #define DEBUG_ASSERT_PRINTF(COND, ...)                                                                                 \
   (((COND))                                                                                                            \
        ? 0                                                                                                             \
        : (fprintf(stderr, "[%s@%s:%d] Assertion failed: (%s) == false\n", __FUNCTION__, __FILE__, __LINE__, #COND),    \
-          fprintf(stderr, __VA_ARGS__), print_stacktrace(), exit(1)))
+          fprintf(stderr, __VA_ARGS__),                                                                                \
+          print_stacktrace(),                                                                                          \
+          exit(1)))
 #else
 #define DEBUG_ASSERT(COND) 0
 #define DEBUG_ASSERT_PRINTF(COND, ...) 0
@@ -70,8 +76,10 @@ static inline void print_stacktrace() {
 
 #define PANIC() (fprintf(stderr, "[%s@%s:%d] PANIC\n", __FUNCTION__, __FILE__, __LINE__), print_stacktrace(), exit(1))
 #define PANIC_PRINTF(...)                                                                                              \
-  (fprintf(stderr, "[%s@%s:%d] PANIC\n", __FUNCTION__, __FILE__, __LINE__), fprintf(stderr, __VA_ARGS__),              \
-   print_stacktrace(), exit(1))
+  (fprintf(stderr, "[%s@%s:%d] PANIC\n", __FUNCTION__, __FILE__, __LINE__),                                            \
+   fprintf(stderr, __VA_ARGS__),                                                                                       \
+   print_stacktrace(),                                                                                                 \
+   exit(1))
 
 /// Return `0` to the caller if value is `0`
 #define TRY_NULL(X)                                                                                                    \
@@ -106,5 +114,5 @@ __attribute__((always_inline)) static inline void xfree(void *p) {
   free(p);
 }
 
-#define xalloc(TY, COUNT) ((TY *)xalloc_(sizeof(TY) * (COUNT)))
+#define xalloc(TY, COUNT) ((TY *restrict)xalloc_(sizeof(TY) * (COUNT)))
 #define xrealloc(P, TY, COUNT) ((TY *)xrealloc_((P), sizeof(TY) * (COUNT)))
