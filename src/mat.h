@@ -40,19 +40,21 @@ static inline Mat4x4 add4x4(Mat4x4 x, Mat4x4 y);
 static inline Mat4x4 sub4x4(Mat4x4 x, Mat4x4 y);
 
 /// Identity 4x4 matrix.
-const Mat4x4 mat4x4_id = {{
-    {1, 0, 0, 0},
-    {0, 1, 0, 0},
-    {0, 0, 1, 0},
-    {0, 0, 0, 1},
-}};
+#define mat4x4_id                                                                                                      \
+  ((Mat4x4){{                                                                                                          \
+      {1, 0, 0, 0},                                                                                                    \
+      {0, 1, 0, 0},                                                                                                    \
+      {0, 0, 1, 0},                                                                                                    \
+      {0, 0, 0, 1},                                                                                                    \
+  }});
 
 /// Identity 3x3 matrix.
-const Mat3x3 mat3x3_id = {{
-    {1, 0, 0},
-    {0, 1, 0},
-    {0, 0, 1},
-}};
+#define mat3x3_id                                                                                                      \
+  ((Mat3x3){{                                                                                                          \
+      {1, 0, 0},                                                                                                       \
+      {0, 1, 0},                                                                                                       \
+      {0, 0, 1},                                                                                                       \
+  }});
 
 /// [x, y, z] => [x, y, z, 1]
 static inline Vec4 vec3to4(Vec3 m);
