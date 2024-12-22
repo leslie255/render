@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common.h"
-#include "mat.h"
+#include "linear_alg.h"
 
 /// It's called `Camera_` because Raylib also has a `Camera_`.
 /// For now camera always look in negative X direction.

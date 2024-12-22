@@ -32,16 +32,16 @@ all: main.o shaders.o render.o gui.o demo
 clean:
 	rm -rf bin/*
 
-main.o: src/main.c src/shaders.h src/gui.h src/render.h src/common.h src/debug_utils.h src/mat.h
+main.o: src/main.c src/shaders.h src/gui.h src/render.h src/common.h src/debug_utils.h src/linear_alg.h
 	$(CC) $(CFLAGS) -c src/main.c -o bin/main.o
 
-render.o: src/render.h src/render.c src/common.h src/debug_utils.h src/mat.h src/math_helpers.h
+render.o: src/render.h src/render.c src/common.h src/debug_utils.h src/linear_alg.h src/math_helpers.h
 	$(CC) $(CFLAGS) -c src/render.c -o bin/render.o
 
-shaders.o: src/shaders.h src/shaders.c src/common.h src/debug_utils.h src/mat.h src/math_helpers.h
+shaders.o: src/shaders.h src/shaders.c src/common.h src/debug_utils.h src/linear_alg.h src/math_helpers.h
 	$(CC) $(CFLAGS) -c src/shaders.c -o bin/shaders.o
 
-gui.o: src/gui.h src/gui.o src/common.h src/common.h src/debug_utils.h src/mat.h src/math_helpers.h
+gui.o: src/gui.h src/gui.o src/common.h src/common.h src/debug_utils.h src/linear_alg.h src/math_helpers.h
 	$(CC) $(CFLAGS) -c src/gui.c -o bin/gui.o
 
 demo: main.o render.o shaders.o render.o gui.o

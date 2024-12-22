@@ -1,7 +1,7 @@
 #include <time.h>
 
 #include "common.h"
-#include "mat.h"
+#include "linear_alg.h"
 #include "teapot.h"
 #include "render.h"
 #include "gui.h"

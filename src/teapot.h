@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mat.h"
+#include "linear_alg.h"
 
 // Source: https://github.com/kretash/UtahTeapot/blob/master/teapot.h
 
