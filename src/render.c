@@ -176,11 +176,15 @@ void draw_triangle(Renderer *renderer, Vec3 p0, Vec3 p1, Vec3 p2, Mat4x4 m, draw
   f32 min_y_cam = maxf(minf_x3(p0_proj.get[1], p1_proj.get[1], p2_proj.get[1]), cam.min_y);
   f32 max_y_cam = minf(maxf_x3(p0_proj.get[1], p1_proj.get[1], p2_proj.get[1]), cam.max_y);
   // Pixel coords.
+  usize min_x = cam_to_screen_x(renderer, min_x_cam);
+  usize max_x = cam_to_screen_x(renderer, max_x_cam);
+  usize min_y = cam_to_screen_y(renderer, max_y_cam);
+  usize max_y = cam_to_screen_y(renderer, min_y_cam);
   // Adds some extra pixels to the frame to compensate for floating point inaccuracies.
-  usize min_x = maxzu(cam_to_screen_x(renderer, min_x_cam) - 1, 0);
-  usize max_x = minzu(cam_to_screen_x(renderer, max_x_cam) + 1, renderer->width);
-  usize min_y = maxzu(cam_to_screen_y(renderer, max_y_cam) - 1, 0);
-  usize max_y = minzu(cam_to_screen_y(renderer, min_y_cam) + 1, renderer->height);
+  min_x = saturating_subzu(min_x, 1);
+  max_x = minzu(saturating_addzu(max_x, 1), renderer->width);
+  min_y = saturating_subzu(min_y, 1);
+  max_y = minzu(saturating_addzu(max_y, 1), renderer->height);
 
   // Sample and draw the pixels.
   for (usize y = min_y; y < max_y; ++y) {

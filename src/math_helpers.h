@@ -2,6 +2,20 @@
 
 #include "common.h"
 
+static inline usize saturating_addzu(usize x, usize y) {
+  usize result = x + y;
+  if (result < x || result < y)
+    result = SIZE_MAX;
+  return result;
+}
+
+static inline usize saturating_subzu(usize x, usize y) {
+  usize result = x - y;
+  if (result > x)
+    result = 0;
+  return result;
+}
+
 static inline f32 pow2f(f32 x) {
   return x * x;
 }
@@ -45,5 +59,3 @@ static inline f32 maxf_x3(f32 a, f32 b, f32 c) {
     max = c;
   return max;
 }
-
-
