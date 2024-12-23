@@ -12,14 +12,14 @@
 [[maybe_unused]]
 static const Vec3 cube_vertices[] = {
     // clang-format off
-    {{-5.0f, -5.0f, -5.0f}},
-    {{ 5.0f, -5.0f, -5.0f}},
-    {{ 5.0f,  5.0f, -5.0f}},
-    {{-5.0f,  5.0f, -5.0f}},
-    {{-5.0f, -5.0f,  5.0f}},
-    {{ 5.0f, -5.0f,  5.0f}},
-    {{ 5.0f,  5.0f,  5.0f}},
-    {{-5.0f,  5.0f,  5.0f}},
+    {{-1.0f, -1.0f, -1.0f}},
+    {{ 1.0f, -1.0f, -1.0f}},
+    {{ 1.0f,  1.0f, -1.0f}},
+    {{-1.0f,  1.0f, -1.0f}},
+    {{-1.0f, -1.0f,  1.0f}},
+    {{ 1.0f, -1.0f,  1.0f}},
+    {{ 1.0f,  1.0f,  1.0f}},
+    {{-1.0f,  1.0f,  1.0f}},
     // clang-format on
 };
 
@@ -91,7 +91,8 @@ i32 main() {
 
     // Render stuff.
     Mat4x4 transform = mul4x4(rotation_for_current_time(), base_transform);
-    draw_object_indexless_gui(&renderer, teapot, ARR_LEN(teapot), transform);
+    draw_object_indexless_gui(&renderer, ARR_ARG(teapot), transform);
+    draw_object_gui(&renderer, cube_vertices, ARR_ARG(cube_indices), transform);
 
     // Finish frame.
     gui_finish_frame(&gui_painter, &renderer);

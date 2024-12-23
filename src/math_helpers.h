@@ -2,6 +2,20 @@
 
 #include "common.h"
 
+static inline u32 saturating_addu(u32 x, u32 y) {
+  u32 result = x + y;
+  if (result < x || result < y)
+    result = 0xFFFFFFFF;
+  return result;
+}
+
+static inline u32 saturating_subu(u32 x, u32 y) {
+  u32 result = x - y;
+  if (result > x)
+    result = 0;
+  return result;
+}
+
 static inline usize saturating_addzu(usize x, usize y) {
   usize result = x + y;
   if (result < x || result < y)

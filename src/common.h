@@ -25,7 +25,9 @@ typedef ssize_t isize;
 
 #define PUT_ON_HEAP(X) memcpy(malloc(sizeof(X)), &X, sizeof(X))
 
-#define ARR_LEN(X) (sizeof(X) / sizeof((X)[0]))
+#define ARR_LEN(X) ((usize)(sizeof(X) / sizeof((X)[0])))
+
+#define ARR_ARG(X) (X), ARR_LEN(X)
 
 static inline void print_stacktrace() {
   void *callstack[128];

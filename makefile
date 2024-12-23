@@ -1,7 +1,7 @@
 CC ?= clang
 CFLAGS = -Wall -Wconversion --std=gnu2x
 DEBUG_FLAGS = -g -O1 -DDEBUG
-RELEASE_FLAGS = -O2
+RELEASE_FLAGS = -O3
 LDFLAGS = 
 
 # Raylib-related setups
@@ -33,16 +33,16 @@ clean:
 	rm -rf bin/*
 
 bin/main.o: src/main.c src/shaders.h src/gui.h src/render.h src/common.h src/debug_utils.h src/linear_alg.h
-	$(CC) $(CFLAGS) -c src/main.c -o bin/main.o
+	$(CC) $(CFLAGS) -c src/main.c -o $@
 
 bin/render.o: src/render.h src/render.c src/common.h src/debug_utils.h src/linear_alg.h src/math_helpers.h
-	$(CC) $(CFLAGS) -c src/render.c -o bin/render.o
+	$(CC) $(CFLAGS) -c src/render.c -o $@
 
 bin/shaders.o: src/shaders.h src/shaders.c src/common.h src/debug_utils.h src/linear_alg.h src/math_helpers.h
-	$(CC) $(CFLAGS) -c src/shaders.c -o bin/shaders.o
+	$(CC) $(CFLAGS) -c src/shaders.c -o $@
 
 bin/gui.o: src/gui.h src/gui.o src/common.h src/common.h src/debug_utils.h src/linear_alg.h src/math_helpers.h
-	$(CC) $(CFLAGS) -c src/gui.c -o bin/gui.o
+	$(CC) $(CFLAGS) -c src/gui.c -o $@
 
 bin/demo: bin/main.o bin/render.o bin/shaders.o bin/render.o bin/gui.o
-	$(CC) $(LDFLAGS) bin/main.o bin/shaders.o bin/render.o bin/gui.o -o bin/demo
+	$(CC) $(LDFLAGS) bin/main.o bin/shaders.o bin/render.o bin/gui.o -o $@
